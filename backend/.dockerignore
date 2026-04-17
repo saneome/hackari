@@ -1,0 +1,12 @@
+target
+.git
+.gitignore
+*.md
+.env*
+!.env.example
+.DS_Store
+*.log
+.vscode
+.idea
+*.swp
+*.swo

@@ -1,0 +1,127 @@
+@use "variables" as *;
+
+// Reset & Base
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html.lenis, html.lenis body {
+  height: auto;
+}
+
+.lenis.lenis-smooth {
+  scroll-behavior: auto !important;
+}
+
+.lenis.lenis-smooth [data-lenis-prevent] {
+  overscroll-behavior: contain;
+}
+
+body {
+  font-family: $font-body;
+  background-color: $color-bg;
+  color: $color-text;
+  line-height: 1.5;
+  overflow-x: hidden;
+}
+
+// Selection
+::selection {
+  background-color: $color-accent;
+  color: $color-bg;
+}
+
+// Scrollbar
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: $color-bg;
+}
+
+::-webkit-scrollbar-thumb {
+  background: $color-border;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: $color-text-dim;
+}
+
+// Typography
+h1, h2, h3, h4, h5, h6 {
+  font-family: $font-display;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.mono {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+// Utility classes
+.text-muted {
+  color: $color-text-muted;
+}
+
+.text-dim {
+  color: $color-text-dim;
+}
+
+.accent {
+  color: $color-accent;
+}
+
+.secondary {
+  color: $color-secondary;
+}
+
+// Cursor
+.cursor-blink::after {
+  content: '_';
+  animation: blink 1s step-end infinite;
+  color: $color-accent;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+// Grid lines
+.grid-lines {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.03;
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(to right, $color-text 1px, transparent 1px),
+      linear-gradient(to bottom, $color-text 1px, transparent 1px);
+    background-size: 80px 80px;
+  }
+}
+
+// Page transition styles
+.page-section {
+  position: relative;
+  min-height: 100vh;
+  width: 100%;
+  overflow: hidden;
+  transform-style: preserve-3d;
+  perspective: 1200px;
+}

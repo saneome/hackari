@@ -1,0 +1,9 @@
+pub use super::deadlines::Entity as Deadlines;
+pub use super::hackathons::Entity as Hackathons;
+pub use super::invitations::Entity as Invitations;
+pub use super::sessions::Entity as Sessions;
+pub use super::submissions::Entity as Submissions;
+pub use super::team_members::Entity as TeamMembers;
+pub use super::teams::Entity as Teams;
+pub use super::tracks::Entity as Tracks;
+pub use super::users::Entity as Users;

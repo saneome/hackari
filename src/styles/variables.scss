@@ -1,0 +1,23 @@
+// Colors
+$color-bg: #0a0a0a;
+$color-surface: #111111;
+$color-text: #ffffff;
+$color-text-dim: rgba(255, 255, 255, 0.6);
+$color-text-muted: rgba(255, 255, 255, 0.4);
+$color-border: rgba(255, 255, 255, 0.1);
+$color-accent: #D4FF00;
+$color-secondary: #FF5722;
+$color-error: #ff4444;
+
+// Fonts
+$font-body: 'Onest', system-ui, sans-serif;
+$font-display: 'Unbounded', system-ui, sans-serif;
+
+// Breakpoints
+$breakpoint-sm: 640px;
+$breakpoint-md: 768px;
+$breakpoint-lg: 1024px;
+$breakpoint-xl: 1200px;
+
+// Transitions
+$transition-smooth: cubic-bezier(0.23, 1, 0.32, 1);
