@@ -22,6 +22,18 @@ pub struct HackathonResponse {
     pub deadlines: Vec<DeadlineResponse>,
     pub participant_count: i64,
     pub team_count: i64,
+    // New fields
+    pub contact_email: Option<String>,
+    pub website_url: Option<String>,
+    pub social_links: Option<serde_json::Value>,
+    pub prize_pool: Option<String>,
+    pub prize_currency: Option<String>,
+    pub prize_description: Option<String>,
+    pub requirements: Option<String>,
+    pub team_size_min: Option<i32>,
+    pub team_size_max: Option<i32>,
+    pub age_restriction: Option<String>,
+    pub skills: Vec<HackathonSkillResponse>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -66,6 +78,22 @@ pub struct CreateHackathonRequest {
     pub max_participants: Option<i32>,
     pub tracks: Vec<CreateTrackRequest>,
     pub deadlines: Vec<CreateDeadlineRequest>,
+    // New fields
+    #[validate(email(message = "Некорректный контактный email"))]
+    pub contact_email: Option<String>,
+    #[validate(url(message = "Некорректный URL сайта"))]
+    pub website_url: Option<String>,
+    pub social_links: Option<serde_json::Value>,
+    pub prize_pool: Option<String>,
+    #[validate(length(max = 10))]
+    pub prize_currency: Option<String>,
+    pub prize_description: Option<String>,
+    pub requirements: Option<String>,
+    pub team_size_min: Option<i32>,
+    pub team_size_max: Option<i32>,
+    #[validate(length(max = 10))]
+    pub age_restriction: Option<String>,
+    pub skills: Vec<String>, // UUIDs as strings
 }
 
 #[derive(Debug, Serialize, Deserialize, Validate)]
@@ -98,6 +126,25 @@ pub struct UpdateHackathonRequest {
     pub event_end: Option<DateTime<chrono::Utc>>,
     pub max_participants: Option<i32>,
     pub is_published: Option<bool>,
+    // Новые поля
+    pub contact_email: Option<String>,
+    pub website_url: Option<String>,
+    pub social_links: Option<serde_json::Value>,
+    pub prize_pool: Option<String>,
+    pub prize_currency: Option<String>,
+    pub prize_description: Option<String>,
+    pub requirements: Option<String>,
+    pub team_size_min: Option<i32>,
+    pub team_size_max: Option<i32>,
+    pub age_restriction: Option<String>,
+    pub skills: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct HackathonSkillResponse {
+    pub id: String,
+    pub name: String,
+    pub category: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

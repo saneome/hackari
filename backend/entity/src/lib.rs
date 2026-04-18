@@ -9,3 +9,8 @@ pub mod submissions;
 pub mod deadlines;
 pub mod invitations;
 pub mod sessions;
+pub mod reset_code;
+pub mod skills;
+pub mod user_skills;
+pub mod organizers;
+pub mod hackathon_skill;

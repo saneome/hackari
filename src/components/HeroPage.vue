@@ -143,19 +143,6 @@ onMounted(() => {
       </button>
     </div>
 
-    <!-- Corner decorations -->
-    <div class="corner top-left">
-      <span class="mono text-muted">v2.024</span>
-    </div>
-    <div class="corner top-right">
-      <span class="mono text-muted">SECURE</span>
-    </div>
-    <div class="corner bottom-left">
-      <div class="status-dot" />
-      <span class="mono text-muted">SYSTEM ONLINE</span>
-    </div>
-
-    <!-- 3D Geometric Shape Background -->
     <div
       ref="geometricShape"
       class="geometric-shape"
@@ -403,44 +390,6 @@ onMounted(() => {
   transform-origin: left;
   transition: transform 0.4s cubic-bezier(0.23, 1, 0.32, 1);
   z-index: 1;
-}
-
-// Corners
-.corner {
-  position: absolute;
-  font-size: 11px;
-  letter-spacing: 0.1em;
-
-  &.top-left {
-    top: 40px;
-    left: 40px;
-  }
-
-  &.top-right {
-    top: 40px;
-    right: 40px;
-  }
-
-  &.bottom-left {
-    bottom: 40px;
-    left: 40px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  @media (max-width: 768px) {
-    &.top-left,
-    &.top-right,
-    &.bottom-left {
-      top: 20px;
-      bottom: auto;
-    }
-
-    &.bottom-left {
-      display: none;
-    }
-  }
 }
 
 .status-dot {

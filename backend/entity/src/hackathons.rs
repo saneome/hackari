@@ -17,8 +17,18 @@ pub struct Model {
     pub event_start: DateTimeWithTimeZone,
     pub event_end: DateTimeWithTimeZone,
     pub max_participants: Option<i32>,
-    pub organizer_id: Option<Uuid>,
+    pub organizer_id: Uuid,
     pub is_published: bool,
+    pub contact_email: Option<String>,
+    pub website_url: Option<String>,
+    pub social_links: Option<Json>,
+    pub prize_pool: Option<String>,
+    pub prize_currency: Option<String>,
+    pub prize_description: Option<String>,
+    pub requirements: Option<String>,
+    pub team_size_min: Option<i32>,
+    pub team_size_max: Option<i32>,
+    pub age_restriction: Option<String>,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
 }
@@ -26,9 +36,9 @@ pub struct Model {
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
     #[sea_orm(
-        belongs_to = "super::users::Entity",
+        belongs_to = "super::organizers::Entity",
         from = "Column::OrganizerId",
-        to = "super::users::Column::Id"
+        to = "super::organizers::Column::Id"
     )]
     Organizer,
     #[sea_orm(has_many = "super::tracks::Entity")]
@@ -37,9 +47,11 @@ pub enum Relation {
     Teams,
     #[sea_orm(has_many = "super::deadlines::Entity")]
     Deadlines,
+    #[sea_orm(has_many = "super::hackathon_skill::Entity")]
+    HackathonSkills,
 }
 
-impl Related<super::users::Entity> for Entity {
+impl Related<super::organizers::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Organizer.def()
     }

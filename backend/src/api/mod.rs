@@ -9,6 +9,7 @@ mod hackathons;
 mod teams;
 mod invitations;
 mod websocket;
+mod organizers;
 
 use crate::services::state::SharedState;
 
@@ -19,5 +20,6 @@ pub fn routes() -> Router<SharedState> {
         .nest("/hackathons", hackathons::routes())
         .nest("/teams", teams::routes())
         .nest("/invitations", invitations::routes())
+        .nest("/organizers", organizers::routes())
         .route("/ws", get(websocket::handler))
 }

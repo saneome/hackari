@@ -1,5 +1,5 @@
-import { ref, computed, onMounted } from 'vue'
-import { authApi } from '@/services/api'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { authApi, setAuthFailureCallback } from '@/services/api'
 
 interface User {
   id: string
@@ -15,8 +15,16 @@ const isInitialized = ref(false)
 export function useAuth() {
   const isAuthenticated = computed(() => !!user.value)
 
+  const handleAuthFailure = () => {
+    user.value = null
+    localStorage.removeItem('user')
+  }
+
   const init = async () => {
     if (isInitialized.value) return
+
+    // Setup auth failure callback for token refresh failures
+    setAuthFailureCallback(handleAuthFailure)
 
     const storedUser = localStorage.getItem('user')
     if (storedUser) {
@@ -27,9 +35,13 @@ export function useAuth() {
       }
     }
 
-    // Verify session with backend
+    // Verify session with backend - 401 will trigger token refresh automatically
     const response = await authApi.me()
     if (response.error) {
+      // Check if it's a session expiration error
+      if (response.error === 'сессия истекла') {
+        // Token refresh failed, user is already logged out by handleAuthFailure
+      }
       user.value = null
       localStorage.removeItem('user')
     } else if (response.data) {
@@ -39,6 +51,11 @@ export function useAuth() {
 
     isInitialized.value = true
   }
+
+  onUnmounted(() => {
+    // Clean up callback
+    setAuthFailureCallback(() => {})
+  })
 
   const login = async (email: string, password: string) => {
     isLoading.value = true

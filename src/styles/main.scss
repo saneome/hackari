@@ -25,6 +25,10 @@ html.lenis, html.lenis body {
   overscroll-behavior: contain;
 }
 
+html {
+  font-family: $font-body;
+}
+
 body {
   font-family: $font-body;
   background-color: $color-bg;

@@ -24,10 +24,13 @@ use crate::{
     },
     utils::error::AppError,
 };
-use entity::{hackathons, submissions, team_members, teams, tracks, users};
+use entity::{hackathons, skills, submissions, team_members, teams, tracks, user_skills, users};
 
 pub fn routes() -> Router<SharedState> {
     Router::new()
+        // Public routes - no auth required
+        .route("/ratings/competencies", get(get_competency_ratings))
+        // Protected routes - auth required
         .route("/", post(create_team))
         .route("/:id", get(get_team).put(update_team).delete(delete_team))
         .route("/:id/join", post(join_team))
@@ -427,6 +430,134 @@ async fn update_submission(
     };
 
     Ok(Json(response))
+}
+
+// Get competency ratings for all teams
+async fn get_competency_ratings(
+    State(state): State<SharedState>,
+) -> Result<Json<Vec<TeamCompetencyRating>>, AppError> {
+    // Get all teams
+    let all_teams = teams::Entity::find()
+        .all(&state.db)
+        .await?;
+
+    let mut ratings: Vec<TeamCompetencyRating> = Vec::new();
+
+    for team in all_teams {
+        // Load hackathon for this team
+        let hackathon = hackathons::Entity::find_by_id(team.hackathon_id)
+            .one(&state.db)
+            .await?
+            .ok_or_else(|| AppError::NotFound("Hackathon not found".to_string()))?;
+        // Get team members with their user info and skills
+        let members = team_members::Entity::find()
+            .filter(team_members::Column::TeamId.eq(team.id))
+            .all(&state.db)
+            .await?;
+
+        let member_count = members.len() as i64;
+
+        // Collect all skills from team members
+        let mut team_skills: Vec<(skills::Model, i32)> = Vec::new();
+        let mut category_stats: std::collections::HashMap<String, (usize, i32)> = std::collections::HashMap::new();
+        let mut unique_skill_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        for member in &members {
+            // Get user's skills
+            let user_skills_list = user_skills::Entity::find()
+                .filter(user_skills::Column::UserId.eq(member.user_id))
+                .all(&state.db)
+                .await?;
+
+            for user_skill in user_skills_list {
+                // Get the skill info separately
+                let skill = skills::Entity::find_by_id(user_skill.skill_id)
+                    .one(&state.db)
+                    .await?
+                    .ok_or_else(|| AppError::NotFound("Skill not found".to_string()))?;
+                team_skills.push((skill.clone(), user_skill.level));
+                unique_skill_names.insert(skill.name.clone());
+
+                let entry = category_stats.entry(skill.category.clone()).or_insert((0, 0));
+                entry.0 += 1;
+                entry.1 += user_skill.level;
+            }
+        }
+
+        // Calculate totals
+        let total_skill_score: i32 = team_skills.iter().map(|(_, level)| *level).sum();
+        let skills_count = unique_skill_names.len();
+        let avg_skill_level = if team_skills.is_empty() {
+            0.0
+        } else {
+            total_skill_score as f32 / team_skills.len() as f32
+        };
+
+        // Get top 5 skills (by level, then unique)
+        let mut top_skills_map: std::collections::HashMap<String, i32> = std::collections::HashMap::new();
+        for (skill, level) in &team_skills {
+            let entry = top_skills_map.entry(skill.name.clone()).or_insert(0);
+            if *level > *entry {
+                *entry = *level;
+            }
+        }
+
+        let mut top_skills_vec: Vec<(String, i32)> = top_skills_map.into_iter().collect();
+        top_skills_vec.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+
+        let top_skills: Vec<TeamSkillInfo> = top_skills_vec
+            .into_iter()
+            .take(5)
+            .map(|(name, level)| TeamSkillInfo { name, level })
+            .collect();
+
+        // Build categories with percentages
+        let categories: Vec<CategoryCompetency> = category_stats
+            .iter()
+            .map(|(name, (count, total_level))| {
+                let avg_level = *total_level as f32 / *count as f32;
+                let percentage = if team_skills.is_empty() {
+                    0.0
+                } else {
+                    (*count as f32 / team_skills.len() as f32) * 100.0
+                };
+                CategoryCompetency {
+                    name: name.clone(),
+                    count: *count,
+                    avg_level,
+                    percentage,
+                }
+            })
+            .collect();
+
+        ratings.push(TeamCompetencyRating {
+            team_id: team.id.to_string(),
+            team_name: team.name.clone(),
+            hackathon_id: hackathon.id.to_string(),
+            hackathon_name: hackathon.title.clone(),
+            member_count,
+            total_skill_score,
+            skills_count,
+            avg_skill_level,
+            top_skills,
+            categories,
+            rank: 0, // Will be calculated after sorting
+        });
+    }
+
+    // Sort by total skill score desc, then by avg skill level desc
+    ratings.sort_by(|a, b| {
+        b.total_skill_score
+            .cmp(&a.total_skill_score)
+            .then_with(|| b.avg_skill_level.partial_cmp(&a.avg_skill_level).unwrap_or(std::cmp::Ordering::Equal))
+    });
+
+    // Assign ranks
+    for (i, rating) in ratings.iter_mut().enumerate() {
+        rating.rank = i + 1;
+    }
+
+    Ok(Json(ratings))
 }
 
 async fn build_team_response(

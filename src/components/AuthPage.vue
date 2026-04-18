@@ -43,24 +43,6 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- Corner Decorations -->
-    <div class="corner top-left">
-      <span class="mono text-muted">v2.024</span>
-    </div>
-    <div class="corner top-right">
-      <span class="mono text-muted">SECURE</span>
-    </div>
-    <div class="corner bottom-left">
-      <div class="status-dot" />
-      <span class="mono text-muted">AUTH SYSTEM</span>
-    </div>
-    <div class="corner bottom-right">
-      <span class="coordinates mono text-muted">
-        POS: {{ Math.random().toString(36).substring(2, 8).toUpperCase() }}
-      </span>
-    </div>
-
-    <!-- Main Content -->
     <div ref="contentRef" class="page-content">
       <!-- Logo -->
       <div class="logo-section">
@@ -166,36 +148,6 @@ onMounted(() => {
 @keyframes float {
   0%, 100% { transform: translateY(0) scale(1); }
   50% { transform: translateY(-30px) scale(1.05); }
-}
-
-// Corners
-.corner {
-  position: absolute;
-  font-size: 11px;
-  letter-spacing: 0.1em;
-
-  &.top-left { top: 40px; left: 40px; }
-  &.top-right { top: 40px; right: 40px; }
-  &.bottom-left {
-    bottom: 40px;
-    left: 40px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  &.bottom-right {
-    bottom: 40px;
-    right: 40px;
-  }
-
-  @media (max-width: 768px) {
-    &.top-left, &.top-right {
-      top: 20px;
-    }
-    &.bottom-left, &.bottom-right {
-      display: none;
-    }
-  }
 }
 
 .status-dot {

@@ -43,13 +43,24 @@ services:
     volumes:
       - minio_data:/data
 
+  redis:
+    image: redis:7-alpine
+    container_name: hackari_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: hackari_backend
+    env_file:
+      - ./backend/.env
     environment:
       DATABASE_URL: postgres://hackari:hackari_dev@postgres:5432/hackari
+      REDIS_URL: redis://redis:6379
       JWT_SECRET: dev-jwt-secret-change-in-production
       JWT_ACCESS_EXPIRY: 15m
       JWT_REFRESH_EXPIRY: 7d
@@ -66,6 +77,8 @@ services:
       postgres:
         condition: service_healthy
       minio:
+        condition: service_started
+      redis:
         condition: service_started
 
   frontend:
@@ -88,3 +101,4 @@ volumes:
   postgres_data:
   pgadmin_data:
   minio_data:
+  redis_data:

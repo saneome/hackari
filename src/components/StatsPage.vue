@@ -246,7 +246,7 @@ const colors = ['#D4FF00', '#FF5722', '#00E5FF', '#7C3AED', '#F59E0B']
                 y="95"
                 text-anchor="middle"
                 fill="#D4FF00"
-                font-family="Satoshi, sans-serif"
+                font-family="Onest, sans-serif"
                 font-size="14"
                 font-weight="500"
               >
@@ -257,7 +257,7 @@ const colors = ['#D4FF00', '#FF5722', '#00E5FF', '#7C3AED', '#F59E0B']
                 y="115"
                 text-anchor="middle"
                 fill="rgba(255,255,255,0.5)"
-                font-family="Satoshi, sans-serif"
+                font-family="Onest, sans-serif"
                 font-size="11"
               >
                 распределение

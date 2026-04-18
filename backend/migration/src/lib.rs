@@ -9,6 +9,12 @@ mod m20240101_000006_create_submissions;
 mod m20240101_000007_create_deadlines;
 mod m20240101_000008_create_invitations;
 mod m20240101_000009_create_sessions;
+mod m20240101_000010_create_password_reset_codes;
+mod m20240101_000011_create_user_skills;
+mod m20240101_000012_add_ai_tools_skills;
+mod m20240101_000013_create_organizers;
+mod m20240101_000014_add_hackathon_fields;
+mod m20240101_000015_create_hackathon_skills;
 
 pub struct Migrator;
 
@@ -25,6 +31,12 @@ impl MigratorTrait for Migrator {
             Box::new(m20240101_000007_create_deadlines::Migration),
             Box::new(m20240101_000008_create_invitations::Migration),
             Box::new(m20240101_000009_create_sessions::Migration),
+            Box::new(m20240101_000010_create_password_reset_codes::Migration),
+            Box::new(m20240101_000011_create_user_skills::Migration),
+            Box::new(m20240101_000012_add_ai_tools_skills::Migration),
+            Box::new(m20240101_000013_create_organizers::Migration),
+            Box::new(m20240101_000014_add_hackathon_fields::Migration),
+            Box::new(m20240101_000015_create_hackathon_skills::Migration),
         ]
     }
 }

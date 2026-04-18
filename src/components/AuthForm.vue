@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue'
+
 import { gsap } from 'gsap'
 import BaseButton from './ui/BaseButton.vue'
 import BaseInput from './ui/BaseInput.vue'
 import { useAuth } from '@/composables/useAuth'
+import { authApi } from '@/services/api'
 
 const { login, register } = useAuth()
 
-type AuthMode = 'login' | 'register' | 'reset'
-type FieldName = 'name' | 'email' | 'password' | 'confirmPassword'
+type AuthMode = 'login' | 'register' | 'reset-email' | 'reset-code' | 'reset-password'
+type FieldName = 'name' | 'email' | 'password' | 'confirmPassword' | 'code' | 'newPassword'
 
 const mode = ref<AuthMode>('login')
 const isLoading = ref(false)
@@ -21,6 +23,8 @@ const formData = ref({
   password: '',
   confirmPassword: '',
   name: '',
+  code: '',
+  newPassword: '',
 })
 
 const errors = ref<Record<string, string>>({})
@@ -79,10 +83,10 @@ const modeConfig = computed<ModeConfig>(() => {
         confirmPassword: 'повторите пароль',
       },
     },
-    reset: {
+    'reset-email': {
       title: 'сброс пароля',
-      subtitle: 'восстановление доступа',
-      submitText: 'отправить',
+      subtitle: 'введите email',
+      submitText: 'отправить код',
       alternateText: 'вспомнили пароль?',
       alternateAction: 'войти',
       fields: ['email'],
@@ -91,12 +95,64 @@ const modeConfig = computed<ModeConfig>(() => {
         password: 'пароль',
         name: 'имя',
         confirmPassword: 'подтвердите пароль',
+        code: 'код',
+        newPassword: 'новый пароль',
       },
       fieldPlaceholders: {
         email: 'name@example.com',
         password: '••••••••',
         name: 'ваше имя',
         confirmPassword: '••••••••',
+        code: '123456',
+        newPassword: '••••••••',
+      },
+    },
+    'reset-code': {
+      title: 'введите код',
+      subtitle: 'проверьте почту',
+      submitText: 'проверить',
+      alternateText: 'не пришел код?',
+      alternateAction: 'отправить снова',
+      fields: ['code'],
+      fieldLabels: {
+        email: 'email',
+        password: 'пароль',
+        name: 'имя',
+        confirmPassword: 'подтвердите пароль',
+        code: 'код',
+        newPassword: 'новый пароль',
+      },
+      fieldPlaceholders: {
+        email: 'name@example.com',
+        password: '••••••••',
+        name: 'ваше имя',
+        confirmPassword: '••••••••',
+        code: '123456',
+        newPassword: '••••••••',
+      },
+    },
+    'reset-password': {
+      title: 'новый пароль',
+      subtitle: 'установите новый пароль',
+      submitText: 'сохранить',
+      alternateText: '',
+      alternateAction: '',
+      fields: ['newPassword', 'confirmPassword'],
+      fieldLabels: {
+        email: 'email',
+        password: 'пароль',
+        name: 'имя',
+        confirmPassword: 'подтвердите пароль',
+        code: 'код',
+        newPassword: 'новый пароль',
+      },
+      fieldPlaceholders: {
+        email: 'name@example.com',
+        password: '••••••••',
+        name: 'ваше имя',
+        confirmPassword: 'повторите пароль',
+        code: '123456',
+        newPassword: 'новый пароль',
       },
     },
   }
@@ -106,6 +162,19 @@ const modeConfig = computed<ModeConfig>(() => {
 const currentField = computed(() => modeConfig.value.fields[currentFieldIndex.value])
 
 const progressPercent = computed(() => {
+  // Unified progress for reset flow: email (1/4), code (2/4), newPassword (3/4), confirmPassword (4/4)
+  if (mode.value.startsWith('reset-')) {
+    if (mode.value === 'reset-email') {
+      return showSubmitButton.value ? 25 : Math.round((currentFieldIndex.value / 1) * 25)
+    } else if (mode.value === 'reset-code') {
+      return showSubmitButton.value ? 50 : 25 + Math.round((currentFieldIndex.value / 1) * 25)
+    } else if (mode.value === 'reset-password') {
+      const resetProgress = Math.round((currentFieldIndex.value / 2) * 50)
+      return showSubmitButton.value ? 100 : 50 + resetProgress
+    }
+  }
+
+  // Default behavior for login/register
   const total = modeConfig.value.fields.length
   const current = currentFieldIndex.value
   if (showSubmitButton.value) return 100
@@ -139,10 +208,15 @@ const isCurrentFieldValid = computed(() => {
       return value.includes('@') && value.includes('.')
     case 'password':
       return value.length >= 8
+    case 'newPassword':
+      return value.length >= 8
     case 'confirmPassword':
-      return value === formData.value.password
+      const compareWith = mode.value === 'reset-password' ? formData.value.newPassword : formData.value.password
+      return value === compareWith
     case 'name':
       return value.length >= 2
+    case 'code':
+      return value.length === 6
     default:
       return true
   }
@@ -159,9 +233,10 @@ const allFieldsFilled = computed(() => {
     const value = formData.value[field]
     if (!value) return false
     if (field === 'email') return value.includes('@') && value.includes('.')
-    if (field === 'password') return value.length >= 8
-    if (field === 'confirmPassword') return value === formData.value.password
+    if (field === 'password' || field === 'newPassword') return value.length >= 8
+    if (field === 'confirmPassword') return value === (mode.value === 'reset-password' ? formData.value.newPassword : formData.value.password)
     if (field === 'name') return value.length >= 2
+    if (field === 'code') return value.length === 6
     return true
   })
 })
@@ -190,7 +265,8 @@ const validateCurrentField = () => {
       }
       break
     case 'confirmPassword':
-      if (value !== formData.value.password) {
+      const compareWith = mode.value === 'reset-password' ? formData.value.newPassword : formData.value.password
+      if (value !== compareWith) {
         errors.value[field] = 'пароли не совпадают'
         return false
       }
@@ -210,10 +286,16 @@ const goToNextField = () => {
   if (!validateCurrentField()) return
 
   if (isLastField.value) {
-    showSubmitButton.value = true
-    nextTick(() => {
-      animateSubmitButton()
-    })
+    // Для режимов сброса пароля сразу отправляем форму, минуя экран проверки
+    if (mode.value.startsWith('reset-')) {
+      handleSubmit()
+    } else {
+      // Для login/register показываем экран проверки данных
+      showSubmitButton.value = true
+      nextTick(() => {
+        animateSubmitButton()
+      })
+    }
   } else {
     currentFieldIndex.value++
     nextTick(() => {
@@ -280,10 +362,50 @@ const handleSubmit = async () => {
         formData.value.password,
         formData.value.name
       )
-    } else {
-      // reset password - mock for now
-      await new Promise(resolve => setTimeout(resolve, 1000))
+    } else if (mode.value === 'reset-email') {
+      // send reset code
+      const resetResult = await authApi.requestReset({ email: formData.value.email })
       isLoading.value = false
+
+      if (resetResult.error) {
+        errors.value.submit = resetResult.error || 'Не удалось отправить код'
+        return
+      }
+
+      // Move to code verification step - MUST change mode BEFORE restore email to avoid watcher auto-reset
+        const savedEmail = formData.value.email
+        mode.value = 'reset-code'
+        formData.value.email = savedEmail
+      return
+    } else if (mode.value === 'reset-code') {
+      const verifyResult = await authApi.verifyResetCode({
+        email: formData.value.email,
+        code: formData.value.code
+      })
+      isLoading.value = false
+
+      if (verifyResult.error) {
+        errors.value.submit = verifyResult.error || 'Неверный код'
+        return
+      }
+
+        // Move to password reset step
+        mode.value = 'reset-password'
+        return
+    } else if (mode.value === 'reset-password') {
+      // reset password
+      const resetResult = await authApi.resetPassword({
+        email: formData.value.email,
+        code: formData.value.code,
+        new_password: formData.value.newPassword
+      })
+      isLoading.value = false
+
+      if (resetResult.error) {
+        errors.value.submit = resetResult.error || 'Не удалось сменить пароль'
+        return
+      }
+
       isSuccess.value = true
       setTimeout(() => {
         isSuccess.value = false
@@ -314,7 +436,7 @@ const handleSubmit = async () => {
 }
 
 const resetForm = () => {
-  formData.value = { email: '', password: '', confirmPassword: '', name: '' }
+  formData.value = { email: '', password: '', confirmPassword: '', name: '', code: '', newPassword: '' }
   currentFieldIndex.value = 0
   showSubmitButton.value = false
   errors.value = {}
@@ -326,8 +448,29 @@ const switchMode = (newMode: AuthMode) => {
   isSuccess.value = false
 }
 
-watch(() => mode.value, () => {
-  resetForm()
+const handleAlternateAction = () => {
+  if (mode.value === 'reset-code' && modeConfig.value.alternateAction === 'отправить снова') {
+    // Resend code
+    formData.value.code = ''
+    resetForm()
+    mode.value = 'reset-email'
+  } else {
+    switchMode(mode.value === 'login' ? 'register' : 'login')
+  }
+}
+
+watch(() => mode.value, (newMode, oldMode) => {
+  // Don't reset form data when transitioning between reset flow steps
+  const resetModes = ['reset-email', 'reset-code', 'reset-password']
+  if (resetModes.includes(newMode) && resetModes.includes(oldMode as string)) {
+    // Only reset UI state, preserve form data (email, code)
+    currentFieldIndex.value = 0
+    showSubmitButton.value = false
+    errors.value = {}
+    isSuccess.value = false
+  } else {
+    resetForm()
+  }
 })
 </script>
 
@@ -359,8 +502,9 @@ watch(() => mode.value, () => {
           </svg>
         </div>
         <p class="success-text">
-          <span v-if="mode === 'reset'">ссылка отправлена</span>
+          <span v-if="mode === 'reset-email'">код отправлен</span>
           <span v-else-if="mode === 'register'">аккаунт создан</span>
+          <span v-else-if="mode === 'reset-password'">пароль изменён</span>
           <span v-else>вход выполнен</span>
         </p>
       </div>
@@ -376,7 +520,7 @@ watch(() => mode.value, () => {
           ref="fieldRefs"
           :key="currentField"
           v-model="currentValue"
-          :type="currentField === 'password' || currentField === 'confirmPassword' ? 'password' : currentField === 'email' ? 'email' : 'text'"
+          :type="currentField === 'password' || currentField === 'confirmPassword' || currentField === 'newPassword' ? 'password' : currentField === 'email' ? 'email' : 'text'"
           :label="modeConfig.fieldLabels[currentField]"
           :placeholder="modeConfig.fieldPlaceholders[currentField]"
           :error="currentError"
@@ -426,7 +570,7 @@ watch(() => mode.value, () => {
           >
             <span class="summary-label">{{ modeConfig.fieldLabels[field] }}</span>
             <span class="summary-value">
-              {{ field === 'password' || field === 'confirmPassword' ? '••••••••' : formData[field] }}
+              {{ field === 'password' || field === 'confirmPassword' || field === 'newPassword' ? '••••••••' : formData[field] }}
             </span>
           </div>
         </div>
@@ -435,7 +579,7 @@ watch(() => mode.value, () => {
           <BaseButton
             type="button"
             variant="secondary"
-            size="lg"
+            size="md"
             @click="goToPrevField"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -447,7 +591,7 @@ watch(() => mode.value, () => {
           <BaseButton
             type="button"
             variant="primary"
-            size="lg"
+            size="md"
             :loading="isLoading"
             @click="handleSubmit"
           >
@@ -462,7 +606,7 @@ watch(() => mode.value, () => {
         <button
           type="button"
           class="link-button"
-          @click="switchMode(mode === 'login' ? 'register' : 'login')"
+          @click="handleAlternateAction"
         >
           {{ modeConfig.alternateAction }}
         </button>
@@ -473,7 +617,7 @@ watch(() => mode.value, () => {
         <button
           type="button"
           class="link-button small"
-          @click="switchMode('reset')"
+          @click="switchMode('reset-email')"
         >
           забыли пароль?
         </button>
@@ -560,15 +704,18 @@ watch(() => mode.value, () => {
 
 .field-actions {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   justify-content: space-between;
   gap: 12px;
   margin-top: 8px;
+
+  > * {
+    flex: 1;
+    min-height: 48px;
+  }
 }
 
 .continue-btn {
-  flex: 1;
-
   svg {
     margin-left: 4px;
   }
@@ -630,6 +777,7 @@ watch(() => mode.value, () => {
   > * {
     flex: 1;
     min-width: 120px;
+    white-space: nowrap;
   }
 }
 
@@ -817,11 +965,13 @@ watch(() => mode.value, () => {
   }
 
   .field-actions {
-    flex-direction: column;
+    flex-direction: row;
+    justify-content: stretch;
     gap: 10px;
 
     > * {
-      width: 100%;
+      flex: 1 1 0 !important;
+      width: auto !important;
     }
   }
 
@@ -839,12 +989,14 @@ watch(() => mode.value, () => {
   }
 
   .submit-actions {
-    flex-direction: column;
+    flex-direction: row;
+    justify-content: stretch;
     gap: 10px;
 
     > * {
-      width: 100%;
-      min-width: auto;
+      flex: 1 1 0 !important;
+      width: auto !important;
+      min-width: 0;
     }
   }
 

@@ -175,20 +175,7 @@ onMounted(() => {
               <h3 class="card-title">{{ feature.title }}</h3>
               <p class="card-description text-dim">{{ feature.description }}</p>
             </div>
-
-            <div class="card-corner">
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.5"
-              >
-                <path d="M7 17L17 7M17 7H7M17 7V17" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </div>
-          </div>
+      </div>
 
           <div class="card-highlight" />
           <div class="card-border" />
@@ -309,16 +296,6 @@ onMounted(() => {
     .card-border {
       border-color: rgba($color-accent, 0.3);
     }
-
-    .card-corner {
-      transform: translate(4px, -4px);
-      color: $color-accent;
-    }
-
-    .card-icon {
-      color: $color-accent;
-      transform: scale(1.1);
-    }
   }
 }
 
@@ -397,14 +374,6 @@ onMounted(() => {
   font-size: 14px;
   line-height: 1.5;
   max-width: 320px;
-}
-
-.card-corner {
-  position: absolute;
-  bottom: 20px;
-  right: 20px;
-  color: $color-text-muted;
-  transition: all 0.3s ease;
 }
 
 // Specific card styles for varied heights

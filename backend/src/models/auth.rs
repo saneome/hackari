@@ -47,3 +47,33 @@ pub struct RefreshTokenResponse {
     pub access_token: String,
     pub refresh_token: String,
 }
+
+#[derive(Debug, Serialize, Deserialize, Validate)]
+pub struct RequestResetRequest {
+    #[validate(email)]
+    pub email: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Validate)]
+pub struct VerifyResetCodeRequest {
+    pub email: String,
+    pub code: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Validate)]
+pub struct ResetPasswordRequest {
+    pub email: String,
+    pub code: String,
+    #[validate(length(min = 8))]
+    pub new_password: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ResetCodeResponse {
+    pub message: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ResetPasswordResponse {
+    pub message: String,
+}

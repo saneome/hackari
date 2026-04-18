@@ -106,3 +106,33 @@ pub struct UpdateSubmissionRequest {
     pub repo_url: Option<String>,
     pub demo_url: Option<String>,
 }
+
+// Competency Rating models
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TeamCompetencyRating {
+    pub team_id: String,
+    pub team_name: String,
+    pub hackathon_id: String,
+    pub hackathon_name: String,
+    pub member_count: i64,
+    pub total_skill_score: i32,
+    pub skills_count: usize,
+    pub avg_skill_level: f32,
+    pub top_skills: Vec<TeamSkillInfo>,
+    pub categories: Vec<CategoryCompetency>,
+    pub rank: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TeamSkillInfo {
+    pub name: String,
+    pub level: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CategoryCompetency {
+    pub name: String,
+    pub count: usize,
+    pub avg_level: f32,
+    pub percentage: f32,
+}

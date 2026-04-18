@@ -35,13 +35,25 @@ async fn main() -> anyhow::Result<()> {
     let database_url = std::env::var("DATABASE_URL")
         .expect("DATABASE_URL must be set");
 
+    let email_api_key = std::env::var("RESEND_API_KEY")
+        .expect("RESEND_API_KEY must be set");
+
+    let from_email = std::env::var("FROM_EMAIL")
+        .unwrap_or_else(|_| "noreply@hackari.ru".to_string());
+
     let db = Database::connect(&database_url).await?;
     info!("Connected to database");
 
     migration::Migrator::up(&db, None).await?;
     info!("Migrations applied");
 
-    let state = Arc::new(AppState::new(db));
+    let redis_url = std::env::var("REDIS_URL")
+        .unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+    let redis_client = redis::Client::open(redis_url)?;
+    let redis = redis_client.get_multiplexed_tokio_connection().await?;
+    info!("Connected to Redis");
+
+    let state = Arc::new(AppState::new(db, redis, &email_api_key, &from_email));
 
     let cors = CorsLayer::new()
         .allow_origin(["http://localhost:5173".parse()?, "http://localhost:3000".parse()?])

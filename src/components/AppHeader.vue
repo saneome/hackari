@@ -2,18 +2,23 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
-import { Menu, X } from 'lucide-vue-next'
+import { Menu, X, LogOut, User as UserIcon } from 'lucide-vue-next'
+import { useAuth } from '@/composables/useAuth'
 
 gsap.registerPlugin(ScrollTrigger)
+
+const { user, isAuthenticated, logout } = useAuth()
 
 const isScrolled = ref(false)
 const isMobileMenuOpen = ref(false)
 
 const navItems = [
-  { label: 'как это работает', href: '#how-it-works' },
-  { label: 'возможности', href: '#features' },
-  { label: 'статистика', href: '#stats' },
+  { label: 'хакатоны', href: '/hackathons', isRoute: true },
+  { label: 'рейтинг', href: '/ratings', isRoute: true },
+  { label: 'организаторам', href: '/organizers', isRoute: true },
 ]
+
+const profileNavItem = { label: 'профиль', href: '/profile', isRoute: true }
 
 let scrollTriggerInstance: ScrollTrigger | null = null
 
@@ -64,20 +69,38 @@ const scrollToSection = (href: string) => {
       </router-link>
 
       <!-- Desktop Navigation -->
+      <!-- Desktop Navigation -->
       <nav class="desktop-nav">
-        <button
-          v-for="item in navItems"
-          :key="item.href"
-          class="nav-link"
-          @click="scrollToSection(item.href)"
-        >
-          {{ item.label }}
-        </button>
+        <template v-for="item in navItems" :key="item.href">
+          <router-link
+            v-if="item.isRoute"
+            :to="item.href"
+            class="nav-link"
+          >
+            {{ item.label }}
+          </router-link>
+          <button
+            v-else
+            class="nav-link"
+            @click="scrollToSection(item.href)"
+          >
+            {{ item.label }}
+          </button>
+        </template>
       </nav>
 
       <!-- Auth Button (Desktop) -->
       <div class="header-actions">
-        <router-link to="/auth" class="auth-link">
+        <template v-if="isAuthenticated && user">
+          <router-link :to="profileNavItem.href" class="user-info">
+            <UserIcon :size="16" class="user-icon" />
+            <span class="user-name">{{ user.name || user.email }}</span>
+          </router-link>
+          <button class="logout-btn" @click="logout">
+            <LogOut :size="16" />
+          </button>
+        </template>
+        <router-link v-else to="/auth" class="auth-link">
           <span class="auth-text">войти</span>
           <span class="auth-bg" />
         </router-link>
@@ -96,16 +119,49 @@ const scrollToSection = (href: string) => {
     <transition name="slide">
       <div v-if="isMobileMenuOpen" class="mobile-menu">
         <nav class="mobile-nav">
-          <button
-            v-for="item in navItems"
-            :key="item.href"
+          <template v-for="item in navItems" :key="item.href">
+            <router-link
+              v-if="item.isRoute"
+              :to="item.href"
+              class="mobile-nav-link"
+              @click="isMobileMenuOpen = false"
+            >
+              {{ item.label }}
+            </router-link>
+            <button
+              v-else
+              class="mobile-nav-link"
+              @click="scrollToSection(item.href)"
+            >
+              {{ item.label }}
+            </button>
+          </template>
+          <router-link
+            v-if="isAuthenticated"
+            :to="profileNavItem.href"
             class="mobile-nav-link"
-            @click="scrollToSection(item.href)"
+            @click="isMobileMenuOpen = false"
           >
-            {{ item.label }}
-          </button>
+            {{ profileNavItem.label }}
+          </router-link>
         </nav>
-        <router-link to="/auth" class="mobile-auth-link" @click="isMobileMenuOpen = false">
+        <!-- Mobile Auth -->
+        <template v-if="isAuthenticated && user">
+          <div class="mobile-user-info">
+            <UserIcon :size="16" />
+            <span>{{ user.name || user.email }}</span>
+          </div>
+          <button class="mobile-logout-btn" @click="logout; isMobileMenuOpen = false">
+            <LogOut :size="16" />
+            выйти
+          </button>
+        </template>
+        <router-link
+          v-else
+          to="/auth"
+          class="mobile-auth-link"
+          @click="isMobileMenuOpen = false"
+        >
           войти
         </router-link>
       </div>
@@ -149,6 +205,10 @@ const scrollToSection = (href: string) => {
   align-items: center;
   max-width: 1400px;
   margin: 0 auto;
+
+  @media (max-width: 768px) {
+    grid-template-columns: 1fr auto;
+  }
 }
 
 // Logo
@@ -213,7 +273,7 @@ const scrollToSection = (href: string) => {
   border: none;
   color: $color-text-dim;
   font-family: $font-body;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 500;
   padding: 8px 16px;
   cursor: pointer;
@@ -262,7 +322,7 @@ const scrollToSection = (href: string) => {
   border: 1px solid $color-border;
   color: $color-text;
   font-family: $font-body;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 500;
   text-decoration: none;
   text-transform: lowercase;
@@ -292,6 +352,65 @@ const scrollToSection = (href: string) => {
   transform-origin: left;
   transition: transform 0.4s $transition-smooth;
   z-index: 1;
+}
+
+// User Info (minimalist)
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: rgba($color-border, 0.3);
+  border: 1px solid rgba($color-border, 0.5);
+  color: $color-text;
+  font-family: $font-body;
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: border-color 0.3s ease;
+
+  &:hover {
+    border-color: $color-accent;
+  }
+
+  @media (max-width: 768px) {
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+}
+
+.user-icon {
+  color: $color-accent;
+  flex-shrink: 0;
+}
+
+.user-name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  @media (max-width: 768px) {
+    max-width: 80px;
+  }
+}
+
+.logout-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+  background: transparent;
+  border: 1px solid $color-border;
+  color: $color-text-dim;
+  cursor: pointer;
+  transition: all 0.3s ease;
+
+  &:hover {
+    color: $color-text;
+    border-color: $color-accent;
+    background: rgba($color-accent, 0.1);
+  }
 }
 
 // Mobile Toggle
@@ -366,14 +485,47 @@ const scrollToSection = (href: string) => {
   }
 }
 
+
+.mobile-user-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid $color-border;
+  font-size: 14px;
+  color: $color-text-dim;
+
+  span {
+    color: $color-text;
+  }
+}
+
+.mobile-logout-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px;
+  background: transparent;
+  border: 1px solid $color-border;
+  color: $color-text-dim;
+  font-family: $font-body;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+
+  &:hover {
+    color: $color-error;
+    border-color: $color-error;
+  }
+}
 // Transitions
-.slide-enter-active,
-.slide-leave-active {
+.slide-enter-active, .slide-leave-active {
   transition: all 0.3s $transition-smooth;
 }
 
-.slide-enter-from,
-.slide-leave-to {
+.slide-enter-from, .slide-leave-to {
   opacity: 0;
   transform: translateY(-10px);
 }

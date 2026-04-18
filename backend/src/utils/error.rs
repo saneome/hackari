@@ -51,3 +51,15 @@ impl From<std::io::Error> for AppError {
         AppError::Internal(err.to_string())
     }
 }
+
+impl From<redis::RedisError> for AppError {
+    fn from(err: redis::RedisError) -> Self {
+        AppError::Internal(format!("Redis error: {}", err))
+    }
+}
+
+impl From<serde_json::Error> for AppError {
+    fn from(err: serde_json::Error) -> Self {
+        AppError::Internal(format!("JSON error: {}", err))
+    }
+}

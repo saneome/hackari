@@ -9,7 +9,9 @@ use axum::{
 };
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use chrono::Utc;
+use redis::AsyncCommands;
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
+use serde::{Deserialize, Serialize};
 use validator::Validate;
 
 use crate::{
@@ -21,7 +23,15 @@ use crate::{
     },
     utils::error::AppError,
 };
-use entity::{sessions, users};
+use entity::{sessions, users, reset_code};
+use rand::RngCore;
+
+#[derive(Serialize, Deserialize)]
+struct RedisResetCode {
+    code: String,
+    user_id: String,
+    created_at: String,
+}
 
 pub fn routes() -> Router<SharedState> {
     Router::new()
@@ -30,6 +40,9 @@ pub fn routes() -> Router<SharedState> {
         .route("/logout", post(logout))
         .route("/refresh", post(refresh_token))
         .route("/me", get(get_current_user).layer(middleware::from_fn(optional_auth_middleware)))
+        .route("/password-reset/request", post(request_reset))
+        .route("/password-reset/verify", post(verify_reset_code))
+        .route("/password-reset/reset", post(reset_password))
 }
 
 async fn register(
@@ -213,9 +226,13 @@ async fn logout(
 async fn refresh_token(
     State(state): State<SharedState>,
     jar: CookieJar,
-    Json(req): Json<RefreshTokenRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let claims = decode_token(&req.refresh_token)?;
+    let refresh_token = jar
+        .get("refresh_token")
+        .map(|c| c.value().to_string())
+        .ok_or(AppError::Unauthorized("No refresh token".to_string()))?;
+
+    let claims = decode_token(&refresh_token)?;
 
     if claims.token_type != "refresh" {
         return Err(AppError::Unauthorized("Invalid token type".to_string()));
@@ -281,4 +298,143 @@ async fn get_current_user(
     }
 
     Err(AppError::Unauthorized("Not authenticated".to_string()))
+}
+
+// Password Reset Endpoints
+async fn request_reset(
+    State(state): State<SharedState>,
+    Json(req): Json<RequestResetRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    req.validate()
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+
+    // Find user by email
+    let user = users::Entity::find()
+        .filter(users::Column::Email.eq(&req.email))
+        .one(&state.db)
+        .await?;
+
+    // Don't reveal if email exists for security
+    let Some(user) = user else {
+        return Ok((StatusCode::OK, Json(ResetCodeResponse {
+            message: "If the email exists, a reset code has been sent".to_string(),
+        })));
+    };
+
+    // Generate 6-digit code
+    let mut code_bytes = [0u8; 3];
+    rand::thread_rng().fill_bytes(&mut code_bytes);
+    let code = format!("{:06}", u32::from_le_bytes([code_bytes[0], code_bytes[1], code_bytes[2], 0]) % 1000000);
+
+    // Save code to Redis with 15 min TTL
+    let redis_key = format!("reset_code:{}", req.email);
+    let reset_data = RedisResetCode {
+        code: code.clone(),
+        user_id: user.id.to_string(),
+        created_at: Utc::now().to_rfc3339(),
+    };
+    let redis_json = serde_json::to_string(&reset_data)?;
+    let mut redis_conn = state.redis.clone();
+    let _: () = redis_conn.set_ex(&redis_key, redis_json, 900).await?;
+
+    // Send email
+    match state.email_service.send_reset_code(&req.email, &code).await {
+        Ok(_) => {
+            Ok((StatusCode::OK, Json(ResetCodeResponse {
+                message: "If the email exists, a reset code has been sent".to_string(),
+            })))
+        }
+        Err(e) => {
+            tracing::error!("Failed to send reset email: {:?}", e);
+            // Still return success to not leak email existence
+            Ok((StatusCode::OK, Json(ResetCodeResponse {
+                message: "If the email exists, a reset code has been sent".to_string(),
+            })))
+        }
+    }
+}
+
+async fn verify_reset_code(
+    State(state): State<SharedState>,
+    Json(req): Json<VerifyResetCodeRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    req.validate()
+    .map_err(|e| AppError::BadRequest(e.to_string()))?;
+
+    let redis_key = format!("reset_code:{}", req.email);
+    let mut redis_conn = state.redis.clone();
+    let redis_data: Option<String> = redis_conn.get(&redis_key).await?;
+
+    let Some(redis_json) = redis_data else {
+        return Err(AppError::BadRequest("Invalid or expired code".to_string()));
+    };
+
+    let reset_data: RedisResetCode = serde_json::from_str(&redis_json)
+        .map_err(|_| AppError::Internal("Failed to parse reset code".to_string()))?;
+
+    if reset_data.code != req.code {
+        return Err(AppError::BadRequest("Invalid or expired code".to_string()));
+    }
+
+    Ok((StatusCode::OK, Json(ResetCodeResponse {
+        message: "Code is valid".to_string(),
+    })))
+}
+
+
+
+
+async fn reset_password(
+    State(state): State<SharedState>,
+    Json(req): Json<ResetPasswordRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    req.validate()
+    .map_err(|e| AppError::BadRequest(e.to_string()))?;
+
+    // Find user by email
+    let user = users::Entity::find()
+    .filter(users::Column::Email.eq(&req.email))
+    .one(&state.db)
+    .await?
+    .ok_or_else(|| AppError::BadRequest("Invalid email".to_string()))?;
+
+    // Check and delete code from Redis (atomic operation)
+    let redis_key = format!("reset_code:{}", req.email);
+    let mut redis_conn = state.redis.clone();
+    let redis_data: Option<String> = redis_conn.get(&redis_key).await?;
+
+    let Some(redis_json) = redis_data else {
+        return Err(AppError::BadRequest("Invalid or expired code".to_string()));
+    };
+
+    let reset_data: RedisResetCode = serde_json::from_str(&redis_json)
+        .map_err(|_| AppError::Internal("Failed to parse reset code".to_string()))?;
+
+    if reset_data.code != req.code {
+        return Err(AppError::BadRequest("Invalid or expired code".to_string()));
+    }
+
+    // Delete code from Redis (mark as used)
+    let _: () = redis_conn.del(&redis_key).await?;
+
+    // Hash new password
+    let password_hash = hash_password(&req.new_password)?;
+
+    // Clone user_id before consuming user
+    let user_id = user.id;
+
+    // Update user password
+    let mut user_active: users::ActiveModel = user.into();
+    user_active.password_hash = Set(password_hash);
+    user_active.update(&state.db).await?;
+
+    // Invalidate all sessions for this user
+    sessions::Entity::delete_many()
+    .filter(sessions::Column::UserId.eq(user_id))
+    .exec(&state.db)
+    .await?;
+
+    Ok((StatusCode::OK, Json(ResetPasswordResponse {
+        message: "Password reset successfully".to_string(),
+    })))
 }
