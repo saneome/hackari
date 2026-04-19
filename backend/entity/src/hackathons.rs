@@ -17,6 +17,7 @@ pub struct Model {
     pub event_start: DateTimeWithTimeZone,
     pub event_end: DateTimeWithTimeZone,
     pub max_participants: Option<i32>,
+    #[sea_orm(column_name = "new_organizer_id")]
     pub organizer_id: Uuid,
     pub is_published: bool,
     pub contact_email: Option<String>,
