@@ -24,7 +24,7 @@ use crate::{
     },
     utils::error::AppError,
 };
-use entity::{hackathons, skills, submissions, team_members, teams, tracks, user_skills, users};
+use entity::{hackathons, organizers, skills, submissions, team_members, teams, tracks, user_skills, users};
 
 pub fn routes() -> Router<SharedState> {
     Router::new()
@@ -42,11 +42,13 @@ pub fn routes() -> Router<SharedState> {
 async fn create_team(
     State(state): State<SharedState>,
     Extension(claims): Extension<Claims>,
-    Path(hackathon_id): Path<Uuid>,
     Json(req): Json<CreateTeamRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     req.validate()
         .map_err(|e| AppError::BadRequest(e.to_string()))?;
+
+    let hackathon_id = Uuid::parse_str(&req.hackathon_id)
+        .map_err(|_| AppError::BadRequest("Invalid hackathon ID".to_string()))?;
 
     let hackathon = hackathons::Entity::find_by_id(hackathon_id)
         .one(&state.db)
@@ -68,6 +70,18 @@ async fn create_team(
         return Err(AppError::Conflict("Already in a team for this hackathon".to_string()));
     }
 
+    // Check if user is the organizer of this hackathon
+    let organizer = organizers::Entity::find()
+        .filter(organizers::Column::UserId.eq(claims.sub))
+        .one(&state.db)
+        .await?;
+
+    if let Some(org) = &organizer {
+        if org.id == hackathon.organizer_id {
+            return Err(AppError::Forbidden("Организатор не может участвовать в своем хакатоне".to_string()));
+        }
+    }
+
     let track_id = req.track_id.map(|id| Uuid::parse_str(&id).ok()).flatten();
 
     let team = teams::ActiveModel {
@@ -82,10 +96,11 @@ async fn create_team(
     let team = team.insert(&state.db).await?;
 
     let member = team_members::ActiveModel {
+        id: Set(Uuid::new_v4()),
         team_id: Set(team.id),
         user_id: Set(claims.sub),
         role: Set("leader".to_string()),
-        ..Default::default()
+        joined_at: Set(chrono::Utc::now().fixed_offset()),
     };
     member.insert(&state.db).await?;
 
@@ -206,6 +221,18 @@ async fn join_team(
 
     if existing_membership.is_some() {
         return Err(AppError::Conflict("Already in a team for this hackathon".to_string()));
+    }
+
+    // Check if user is the organizer of this hackathon
+    let organizer = organizers::Entity::find()
+        .filter(organizers::Column::UserId.eq(claims.sub))
+        .one(&state.db)
+        .await?;
+
+    if let Some(org) = &organizer {
+        if org.id == hackathon.organizer_id {
+            return Err(AppError::Forbidden("Организатор не может участвовать в своем хакатоне".to_string()));
+        }
     }
 
     let member_count = team_members::Entity::find()

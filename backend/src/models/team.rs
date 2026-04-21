@@ -34,6 +34,7 @@ pub struct TeamMemberResponse {
 
 #[derive(Debug, Serialize, Deserialize, Validate)]
 pub struct CreateTeamRequest {
+    pub hackathon_id: String,
     #[validate(length(min = 2, max = 100))]
     pub name: String,
     pub description: Option<String>,

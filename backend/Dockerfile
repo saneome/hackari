@@ -1,4 +1,4 @@
-FROM rust:1.85-slim as builder
+FROM rust:1.86-slim as builder
 
 WORKDIR /app
 
@@ -14,7 +14,7 @@ COPY src ./src
 
 RUN cargo build --release
 
-FROM rust:1.85-slim
+FROM rust:1.86-slim
 
 RUN apt-get update && apt-get install -y \
     libssl3 \

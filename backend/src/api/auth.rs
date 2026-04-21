@@ -13,6 +13,7 @@ use redis::AsyncCommands;
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use serde::{Deserialize, Serialize};
 use validator::Validate;
+use uuid::Uuid;
 
 use crate::{
     middleware::auth::optional_auth_middleware,
@@ -23,15 +24,11 @@ use crate::{
     },
     utils::error::AppError,
 };
-use entity::{sessions, users, reset_code};
-use rand::RngCore;
+use entity::{sessions, users};
 
-#[derive(Serialize, Deserialize)]
-struct RedisResetCode {
-    code: String,
-    user_id: String,
-    created_at: String,
-}
+// Redis token expiration in seconds
+const PASSWORD_RESET_TTL: u64 = 900; // 15 minutes
+const EMAIL_VERIFICATION_TTL: u64 = 86400; // 24 hours
 
 pub fn routes() -> Router<SharedState> {
     Router::new()
@@ -41,8 +38,9 @@ pub fn routes() -> Router<SharedState> {
         .route("/refresh", post(refresh_token))
         .route("/me", get(get_current_user).layer(middleware::from_fn(optional_auth_middleware)))
         .route("/password-reset/request", post(request_reset))
-        .route("/password-reset/verify", post(verify_reset_code))
         .route("/password-reset/reset", post(reset_password))
+        .route("/verify-email/:token", get(verify_email))
+        .route("/resend-verification", post(resend_verification))
 }
 
 async fn register(
@@ -67,44 +65,31 @@ async fn register(
     let user = users::ActiveModel {
         email: Set(req.email.clone()),
         password_hash: Set(password_hash),
-        name: Set(req.name),
+        name: Set(req.name.clone()),
+        is_verified: Set(false), // User starts unverified
         ..Default::default()
     };
 
     let user = user.insert(&state.db).await?;
 
-    let access_token = generate_access_token(user.id, &user.email)?;
-    let refresh_token = generate_refresh_token(user.id, &user.email)?;
+    // Generate verification token
+    let verification_token = Uuid::new_v4().to_string();
+    let redis_key = format!("email_verify:{}", verification_token);
+    let mut redis_conn = state.redis.clone();
+    let _: () = redis_conn.set_ex(&redis_key, user.id.to_string(), EMAIL_VERIFICATION_TTL).await?;
 
-    let session_token = generate_session_token();
-    let session_hash = hash_password(&session_token).unwrap_or_default();
+    // Send verification email
+    let frontend_url = std::env::var("FRONTEND_URL").unwrap_or_else(|_| "http://localhost:5173".to_string());
+    let verify_url = format!("{}/auth/verify-email?token={}", frontend_url, verification_token);
+    tracing::debug!("Verification URL: {}", verify_url);
 
-    let session = sessions::ActiveModel {
-        user_id: Set(user.id),
-        token_hash: Set(session_hash),
-        expires_at: Set((Utc::now() + chrono::Duration::days(7)).fixed_offset()),
-        ..Default::default()
-    };
-    session.insert(&state.db).await?;
+    if let Err(e) = state.email_service.send_email_verification(&req.email, &verification_token).await {
+        tracing::error!("Failed to send verification email: {:?}", e);
+        // For development: log the verification URL so developer can manually verify
+        tracing::info!("DEV: Verification link for {}: {}", req.email, verify_url);
+    }
 
-    let access_cookie = Cookie::build(("access_token", access_token.clone()))
-        .http_only(true)
-        .secure(false)
-        .same_site(SameSite::Lax)
-        .path("/")
-        .max_age(time::Duration::minutes(15))
-        .build();
-
-    let refresh_cookie = Cookie::build(("refresh_token", refresh_token.clone()))
-        .http_only(true)
-        .secure(false)
-        .same_site(SameSite::Lax)
-        .path("/")
-        .max_age(time::Duration::days(7))
-        .build();
-
-    let jar = jar.add(access_cookie).add(refresh_cookie);
-
+    // Return user WITHOUT tokens since they need to verify first
     let user_response = UserResponse {
         id: user.id.to_string(),
         email: user.email,
@@ -116,13 +101,10 @@ async fn register(
         is_verified: user.is_verified,
     };
 
-    let response = AuthResponse {
-        user: user_response,
-        access_token,
-        refresh_token,
-    };
-
-    Ok((StatusCode::CREATED, jar, Json(response)))
+    Ok((StatusCode::CREATED, Json(serde_json::json!({
+        "user": user_response,
+        "message": "Registration successful. Please check your email to verify your account.",
+    }))))
 }
 
 async fn login(
@@ -137,11 +119,16 @@ async fn login(
         .filter(users::Column::Email.eq(&req.email))
         .one(&state.db)
         .await?
-        .ok_or(AppError::Unauthorized("Invalid credentials".to_string()))?;
+        .ok_or_else(|| AppError::Unauthorized("Неверный email или пароль".to_string()))?;
+
+    // Check if user is verified
+    if !user.is_verified {
+        return Err(AppError::Forbidden("Email не подтверждён. Проверьте почту или запросите новую ссылку".to_string()));
+    }
 
     let valid = verify_password(&req.password, &user.password_hash)?;
     if !valid {
-        return Err(AppError::Unauthorized("Invalid credentials".to_string()));
+        return Err(AppError::Unauthorized("Неверный email или пароль".to_string()));
     }
 
     let access_token = generate_access_token(user.id, &user.email)?;
@@ -230,7 +217,7 @@ async fn refresh_token(
     let refresh_token = jar
         .get("refresh_token")
         .map(|c| c.value().to_string())
-        .ok_or(AppError::Unauthorized("No refresh token".to_string()))?;
+        .ok_or_else(|| AppError::Unauthorized("No refresh token".to_string()))?;
 
     let claims = decode_token(&refresh_token)?;
 
@@ -242,7 +229,12 @@ async fn refresh_token(
     let user = users::Entity::find_by_id(user_id)
         .one(&state.db)
         .await?
-        .ok_or(AppError::Unauthorized("User not found".to_string()))?;
+        .ok_or_else(|| AppError::Unauthorized("User not found".to_string()))?;
+
+    // Check if user is still verified
+    if !user.is_verified {
+        return Err(AppError::Forbidden("Email не подтверждён".to_string()));
+    }
 
     let access_token = generate_access_token(user.id, &user.email)?;
     let refresh_token = generate_refresh_token(user.id, &user.email)?;
@@ -281,7 +273,7 @@ async fn get_current_user(
         let user = users::Entity::find_by_id(claims.sub)
             .one(&state.db)
             .await?
-            .ok_or(AppError::NotFound("User not found".to_string()))?;
+            .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
 
         let user_response = UserResponse {
             id: user.id.to_string(),
@@ -316,112 +308,70 @@ async fn request_reset(
 
     // Don't reveal if email exists for security
     let Some(user) = user else {
-        return Ok((StatusCode::OK, Json(ResetCodeResponse {
-            message: "If the email exists, a reset code has been sent".to_string(),
-        })));
+        return Ok((StatusCode::OK, Json(serde_json::json!({
+            "message": "Если email существует, ссылка для сброса пароля отправлена"
+        }))));
     };
 
-    // Generate 6-digit code
-    let mut code_bytes = [0u8; 3];
-    rand::thread_rng().fill_bytes(&mut code_bytes);
-    let code = format!("{:06}", u32::from_le_bytes([code_bytes[0], code_bytes[1], code_bytes[2], 0]) % 1000000);
-
-    // Save code to Redis with 15 min TTL
-    let redis_key = format!("reset_code:{}", req.email);
-    let reset_data = RedisResetCode {
-        code: code.clone(),
-        user_id: user.id.to_string(),
-        created_at: Utc::now().to_rfc3339(),
-    };
-    let redis_json = serde_json::to_string(&reset_data)?;
+    // Generate reset token
+    let reset_token = Uuid::new_v4().to_string();
+    let redis_key = format!("password_reset:{}", reset_token);
     let mut redis_conn = state.redis.clone();
-    let _: () = redis_conn.set_ex(&redis_key, redis_json, 900).await?;
+    let _: () = redis_conn.set_ex(&redis_key, user.id.to_string(), PASSWORD_RESET_TTL).await?;
 
-    // Send email
-    match state.email_service.send_reset_code(&req.email, &code).await {
+    // Send email with reset link
+    let frontend_url = std::env::var("FRONTEND_URL").unwrap_or_else(|_| "http://localhost:5173".to_string());
+    let reset_url = format!("{}/auth/reset-password?token={}", frontend_url, reset_token);
+    tracing::debug!("Reset URL: {}", reset_url);
+
+    match state.email_service.send_password_reset_link(&req.email, &reset_token).await {
         Ok(_) => {
-            Ok((StatusCode::OK, Json(ResetCodeResponse {
-                message: "If the email exists, a reset code has been sent".to_string(),
-            })))
+            Ok((StatusCode::OK, Json(serde_json::json!({
+                "message": "Если email существует, ссылка для сброса пароля отправлена"
+            }))))
         }
         Err(e) => {
             tracing::error!("Failed to send reset email: {:?}", e);
-            // Still return success to not leak email existence
-            Ok((StatusCode::OK, Json(ResetCodeResponse {
-                message: "If the email exists, a reset code has been sent".to_string(),
-            })))
+            // For development: log the reset URL so developer can test manually
+            tracing::info!("DEV: Reset link for {}: {}", req.email, reset_url);
+            // Still return success to mask email existence
+            Ok((StatusCode::OK, Json(serde_json::json!({
+                "message": "Если email существует, ссылка для сброса пароля отправлена"
+            }))))
         }
     }
 }
-
-async fn verify_reset_code(
-    State(state): State<SharedState>,
-    Json(req): Json<VerifyResetCodeRequest>,
-) -> Result<impl IntoResponse, AppError> {
-    req.validate()
-    .map_err(|e| AppError::BadRequest(e.to_string()))?;
-
-    let redis_key = format!("reset_code:{}", req.email);
-    let mut redis_conn = state.redis.clone();
-    let redis_data: Option<String> = redis_conn.get(&redis_key).await?;
-
-    let Some(redis_json) = redis_data else {
-        return Err(AppError::BadRequest("Invalid or expired code".to_string()));
-    };
-
-    let reset_data: RedisResetCode = serde_json::from_str(&redis_json)
-        .map_err(|_| AppError::Internal("Failed to parse reset code".to_string()))?;
-
-    if reset_data.code != req.code {
-        return Err(AppError::BadRequest("Invalid or expired code".to_string()));
-    }
-
-    Ok((StatusCode::OK, Json(ResetCodeResponse {
-        message: "Code is valid".to_string(),
-    })))
-}
-
-
-
 
 async fn reset_password(
     State(state): State<SharedState>,
     Json(req): Json<ResetPasswordRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     req.validate()
-    .map_err(|e| AppError::BadRequest(e.to_string()))?;
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
 
-    // Find user by email
-    let user = users::Entity::find()
-    .filter(users::Column::Email.eq(&req.email))
-    .one(&state.db)
-    .await?
-    .ok_or_else(|| AppError::BadRequest("Invalid email".to_string()))?;
-
-    // Check and delete code from Redis (atomic operation)
-    let redis_key = format!("reset_code:{}", req.email);
+    // Validate token from Redis
+    let redis_key = format!("password_reset:{}", req.token);
     let mut redis_conn = state.redis.clone();
-    let redis_data: Option<String> = redis_conn.get(&redis_key).await?;
+    let user_id_str: Option<String> = redis_conn.get(&redis_key).await?;
 
-    let Some(redis_json) = redis_data else {
-        return Err(AppError::BadRequest("Invalid or expired code".to_string()));
+    let Some(user_id_str) = user_id_str else {
+        return Err(AppError::BadRequest("Ссылка устарела или недействительна".to_string()));
     };
 
-    let reset_data: RedisResetCode = serde_json::from_str(&redis_json)
-        .map_err(|_| AppError::Internal("Failed to parse reset code".to_string()))?;
-
-    if reset_data.code != req.code {
-        return Err(AppError::BadRequest("Invalid or expired code".to_string()));
-    }
-
-    // Delete code from Redis (mark as used)
+    // Delete token (one-time use)
     let _: () = redis_conn.del(&redis_key).await?;
+
+    let user_id: Uuid = user_id_str.parse()
+        .map_err(|_| AppError::Internal("Invalid user ID in token".to_string()))?;
+
+    // Find user
+    let user = users::Entity::find_by_id(user_id)
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
 
     // Hash new password
     let password_hash = hash_password(&req.new_password)?;
-
-    // Clone user_id before consuming user
-    let user_id = user.id;
 
     // Update user password
     let mut user_active: users::ActiveModel = user.into();
@@ -430,11 +380,105 @@ async fn reset_password(
 
     // Invalidate all sessions for this user
     sessions::Entity::delete_many()
-    .filter(sessions::Column::UserId.eq(user_id))
-    .exec(&state.db)
-    .await?;
+        .filter(sessions::Column::UserId.eq(user_id))
+        .exec(&state.db)
+        .await?;
 
-    Ok((StatusCode::OK, Json(ResetPasswordResponse {
-        message: "Password reset successfully".to_string(),
-    })))
+    Ok((StatusCode::OK, Json(serde_json::json!({
+        "message": "Пароль успешно изменён"
+    }))))
+}
+
+// Email verification endpoint
+async fn verify_email(
+    State(state): State<SharedState>,
+    axum::extract::Path(token): axum::extract::Path<String>,
+) -> Result<impl IntoResponse, AppError> {
+    let redis_key = format!("email_verify:{}", token);
+    let mut redis_conn = state.redis.clone();
+    let user_id_str: Option<String> = redis_conn.get(&redis_key).await?;
+
+    let Some(user_id_str) = user_id_str else {
+        return Err(AppError::BadRequest("Ссылка устарела или недействительна".to_string()));
+    };
+
+    // Delete token
+    let _: () = redis_conn.del(&redis_key).await?;
+
+    let user_id: Uuid = user_id_str.parse()
+        .map_err(|_| AppError::Internal("Invalid user ID in token".to_string()))?;
+
+    // Update user to verified
+    let user = users::Entity::find_by_id(user_id)
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
+
+    if user.is_verified {
+        return Ok((StatusCode::OK, Json(serde_json::json!({
+            "message": "Email уже подтверждён"
+        }))));
+    }
+
+    let mut user_active: users::ActiveModel = user.into();
+    user_active.is_verified = Set(true);
+    user_active.update(&state.db).await?;
+
+    Ok((StatusCode::OK, Json(serde_json::json!({
+        "message": "Email успешно подтверждён. Теперь вы можете войти в аккаунт."
+    }))))
+}
+
+// Resend verification email
+#[derive(Deserialize, Validate)]
+struct ResendVerificationRequest {
+    #[validate(email)]
+    email: String,
+}
+
+async fn resend_verification(
+    State(state): State<SharedState>,
+    Json(req): Json<ResendVerificationRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    req.validate()
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+
+    let user = users::Entity::find()
+        .filter(users::Column::Email.eq(&req.email))
+        .one(&state.db)
+        .await?;
+
+    // Don't reveal if email exists
+    let Some(user) = user else {
+        return Ok((StatusCode::OK, Json(serde_json::json!({
+            "message": "Если email зарегистрирован и не подтверждён, письмо отправлено"
+        }))));
+    };
+
+    // Already verified
+    if user.is_verified {
+        return Ok((StatusCode::OK, Json(serde_json::json!({
+            "message": "Email уже подтверждён"
+        }))));
+    }
+
+    // Generate new verification token
+    let verification_token = Uuid::new_v4().to_string();
+    let redis_key = format!("email_verify:{}", verification_token);
+    let mut redis_conn = state.redis.clone();
+    let _: () = redis_conn.set_ex(&redis_key, user.id.to_string(), EMAIL_VERIFICATION_TTL).await?;
+
+    // Send verification email
+    match state.email_service.send_email_verification(&req.email, &verification_token).await {
+        Ok(_) => {
+            Ok((StatusCode::OK, Json(serde_json::json!({
+                "message": "Если email зарегистрирован и не подтверждён, письмо отправлено"
+            }))))
+        }
+        Err(e) => {
+            tracing::error!("Failed to send verification email: {:?}", e);
+            let _: () = redis_conn.del(&redis_key).await?;
+            Err(AppError::Internal("Ошибка отправки письма".to_string()))
+        }
+    }
 }

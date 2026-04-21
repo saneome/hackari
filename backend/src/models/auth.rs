@@ -62,8 +62,7 @@ pub struct VerifyResetCodeRequest {
 
 #[derive(Debug, Serialize, Deserialize, Validate)]
 pub struct ResetPasswordRequest {
-    pub email: String,
-    pub code: String,
+    pub token: String,
     #[validate(length(min = 8))]
     pub new_password: String,
 }
@@ -75,5 +74,10 @@ pub struct ResetCodeResponse {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ResetPasswordResponse {
+    pub message: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VerificationResponse {
     pub message: String,
 }
