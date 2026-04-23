@@ -14,7 +14,7 @@ tokio = { version = "1", features = ["full"] }
 tower = { version = "0.4", features = ["full"] }
 tower-http = { version = "0.5", features = ["cors", "trace", "fs"] }
 
-sea-orm = { version = "0.12", features = ["sqlx-postgres", "runtime-tokio-native-tls", "with-uuid", "with-chrono"] }
+sea-orm = { version = "0.12", features = ["sqlx-postgres", "runtime-tokio-rustls", "with-uuid", "with-chrono"] }
 entity = { path = "entity" }
 migration = { path = "migration" }
 
@@ -40,6 +40,7 @@ regex = "~1.9"
 time = "=0.3.36"
 url = "=2.4.1"
 home = "=0.5.5"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 redis = { version = "0.24", features = ["tokio-comp", "connection-manager"] }
-lettre = { version = "0.11", features = ["tokio1", "tokio1-native-tls"] }
+lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "rustls-tls"] }
+handlebars = "5"

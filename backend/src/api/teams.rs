@@ -9,7 +9,7 @@ use axum::{
 };
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set,
+  ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set, QuerySelect,
 };
 use uuid::Uuid;
 use validator::Validate;
@@ -26,17 +26,21 @@ use crate::{
 };
 use entity::{hackathons, organizers, skills, submissions, team_members, teams, tracks, user_skills, users};
 
+use axum::extract::Query;
+use std::collections::HashMap;
+
 pub fn routes() -> Router<SharedState> {
-    Router::new()
-        // Public routes - no auth required
-        .route("/ratings/competencies", get(get_competency_ratings))
-        // Protected routes - auth required
-        .route("/", post(create_team))
-        .route("/:id", get(get_team).put(update_team).delete(delete_team))
-        .route("/:id/join", post(join_team))
-        .route("/:id/leave", post(leave_team))
-        .route("/:id/submission", get(get_submission).post(create_submission).put(update_submission))
-        .layer(middleware::from_fn(auth_middleware))
+  Router::new()
+    // Public routes - no auth required
+    .route("/ratings/competencies", get(get_competency_ratings))
+    .route("/ratings/categories", get(get_rating_categories))
+    // Protected routes - auth required
+    .route("/", post(create_team))
+    .route("/:id", get(get_team).put(update_team).delete(delete_team))
+    .route("/:id/join", post(join_team))
+    .route("/:id/leave", post(leave_team))
+    .route("/:id/submission", get(get_submission).post(create_submission).put(update_submission))
+    .layer(middleware::from_fn(auth_middleware))
 }
 
 async fn create_team(
@@ -461,12 +465,16 @@ async fn update_submission(
 
 // Get competency ratings for all teams
 async fn get_competency_ratings(
-    State(state): State<SharedState>,
+  State(state): State<SharedState>,
+  Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Vec<TeamCompetencyRating>>, AppError> {
-    // Get all teams
-    let all_teams = teams::Entity::find()
-        .all(&state.db)
-        .await?;
+  // Parse category filter from query params
+  let category_filter: Option<String> = params.get("category").cloned();
+  
+  // Get all teams
+  let all_teams = teams::Entity::find()
+    .all(&state.db)
+    .await?;
 
     let mut ratings: Vec<TeamCompetencyRating> = Vec::new();
 
@@ -557,27 +565,34 @@ async fn get_competency_ratings(
             })
             .collect();
 
-        ratings.push(TeamCompetencyRating {
-            team_id: team.id.to_string(),
-            team_name: team.name.clone(),
-            hackathon_id: hackathon.id.to_string(),
-            hackathon_name: hackathon.title.clone(),
-            member_count,
-            total_skill_score,
-            skills_count,
-            avg_skill_level,
-            top_skills,
-            categories,
-            rank: 0, // Will be calculated after sorting
-        });
+  // Skip teams that don't have the filtered category
+  if let Some(ref category) = category_filter {
+    if !category_stats.contains_key(category) {
+      continue;
     }
+  }
 
-    // Sort by total skill score desc, then by avg skill level desc
-    ratings.sort_by(|a, b| {
-        b.total_skill_score
-            .cmp(&a.total_skill_score)
-            .then_with(|| b.avg_skill_level.partial_cmp(&a.avg_skill_level).unwrap_or(std::cmp::Ordering::Equal))
-    });
+  ratings.push(TeamCompetencyRating {
+    team_id: team.id.to_string(),
+    team_name: team.name.clone(),
+    hackathon_id: hackathon.id.to_string(),
+    hackathon_name: hackathon.title.clone(),
+    member_count,
+    total_skill_score,
+    skills_count,
+    avg_skill_level,
+    top_skills,
+    categories,
+    rank: 0, // Will be calculated after sorting
+  });
+  }
+
+  // Sort by total skill score desc, then by avg skill level desc
+  ratings.sort_by(|a, b| {
+    b.total_skill_score
+      .cmp(&a.total_skill_score)
+      .then_with(|| b.avg_skill_level.partial_cmp(&a.avg_skill_level).unwrap_or(std::cmp::Ordering::Equal))
+  });
 
     // Assign ranks
     for (i, rating) in ratings.iter_mut().enumerate() {
@@ -585,6 +600,21 @@ async fn get_competency_ratings(
     }
 
     Ok(Json(ratings))
+}
+
+// Get all unique skill categories for filtering
+async fn get_rating_categories(
+  State(state): State<SharedState>,
+) -> Result<Json<Vec<String>>, AppError> {
+  let categories = skills::Entity::find()
+    .select_only()
+    .column(skills::Column::Category)
+    .distinct()
+    .into_tuple::<String>()
+    .all(&state.db)
+    .await?;
+
+  Ok(Json(categories))
 }
 
 async fn build_team_response(

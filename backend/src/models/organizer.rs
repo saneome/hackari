@@ -80,4 +80,6 @@ pub struct HackathonSummary {
     pub event_end: String,
     pub location_type: String,
     pub is_published: bool,
+    pub participant_count: i64,
+    pub team_count: i64,
 }

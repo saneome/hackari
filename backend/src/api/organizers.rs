@@ -6,7 +6,7 @@ use axum::{
     routing::{get, post, put},
     Json, Router,
 };
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
 use validator::Validate;
 use uuid::Uuid;
 
@@ -17,7 +17,7 @@ use crate::{
     services::state::SharedState,
     utils::error::AppError,
 };
-use entity::{organizers, hackathons};
+use entity::{hackathons, organizers, team_members, teams, users};
 
 pub fn routes() -> Router<SharedState> {
     Router::new()
@@ -42,6 +42,17 @@ async fn create_organizer(
 
     if existing.is_some() {
         return Err(AppError::Conflict("Организатор уже существует".to_string()));
+    }
+
+    let user = users::Entity::find_by_id(claims.sub)
+        .one(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Пользователь не найден".to_string()))?;
+
+    if user.organizer_terms_accepted_at.is_none() {
+        return Err(AppError::Forbidden(
+            "Сначала примите условия использования платформы".to_string(),
+        ));
     }
 
     let organizer = organizers::ActiveModel {
@@ -198,9 +209,21 @@ async fn get_organizer_hackathons(
         .all(&state.db)
         .await?;
 
-    let summaries: Vec<HackathonSummary> = hackathons
-        .into_iter()
-        .map(|h| HackathonSummary {
+    let mut summaries: Vec<HackathonSummary> = Vec::with_capacity(hackathons.len());
+
+    for h in hackathons {
+        let team_count = teams::Entity::find()
+            .filter(teams::Column::HackathonId.eq(h.id))
+            .count(&state.db)
+            .await? as i64;
+
+        let participant_count = team_members::Entity::find()
+            .inner_join(teams::Entity)
+            .filter(teams::Column::HackathonId.eq(h.id))
+            .count(&state.db)
+            .await? as i64;
+
+        summaries.push(HackathonSummary {
             id: h.id.to_string(),
             title: h.title,
             banner_url: h.banner_url,
@@ -208,8 +231,10 @@ async fn get_organizer_hackathons(
             event_end: h.event_end.to_rfc3339(),
             location_type: h.location_type,
             is_published: h.is_published,
-        })
-        .collect();
+            participant_count,
+            team_count,
+        });
+    }
 
     Ok(Json(summaries))
 }

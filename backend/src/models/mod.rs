@@ -4,3 +4,4 @@ pub mod hackathon;
 pub mod team;
 pub mod invitation;
 pub mod organizer;
+pub mod rating;

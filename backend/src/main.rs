@@ -61,8 +61,12 @@ async fn main() -> anyhow::Result<()> {
 
  let state = Arc::new(AppState::new(db, redis, &smtp_user, &smtp_password, &from_email, &frontend_url));
 
- let cors = CorsLayer::new()
- .allow_origin(["http://localhost:5173".parse()?, "http://localhost:3000".parse()?])
+let cors = CorsLayer::new()
+    .allow_origin([
+        "http://localhost:5173".parse()?,
+        "http://localhost:3000".parse()?,
+        "http://localhost:3001".parse()?,
+    ])
  .allow_methods([
  axum::http::Method::GET,
  axum::http::Method::POST,

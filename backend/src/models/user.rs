@@ -21,6 +21,7 @@ pub struct UserProfileResponse {
     pub github_url: Option<String>,
     pub telegram_username: Option<String>,
     pub is_verified: bool,
+    pub organizer_terms_accepted_at: Option<String>,
     pub created_at: String,
     pub skills: Vec<SkillResponse>,
 }

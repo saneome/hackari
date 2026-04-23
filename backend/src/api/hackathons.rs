@@ -31,6 +31,15 @@ pub fn routes() -> Router<SharedState> {
         .route("/:id", get(get_hackathon).put(update_hackathon).delete(delete_hackathon))
         .route("/:id/participants", get(get_hackathon_participants))
         .route("/:id/teams", get(get_hackathon_teams))
+        // Rating criteria endpoints
+        .route("/:id/criteria", get(get_hackathon_criteria).post(create_criteria))
+        .route("/:id/criteria/:criteria_id", put(update_criteria).delete(delete_criteria))
+        .route("/:id/criteria/reorder", post(reorder_criteria))
+        // Submission rating endpoints
+        .route("/:id/submissions/with-ratings", get(get_submissions_with_ratings))
+        .route("/:id/ratings", post(create_rating))
+        .route("/:id/ratings/:rating_id", put(update_rating).delete(delete_rating))
+        .route("/:id/ratings/public", get(get_public_ratings))
         .layer(middleware::from_fn(optional_auth_middleware))
 }
 
@@ -399,6 +408,20 @@ async fn get_hackathon_teams(
         .all(&state.db)
         .await?;
 
+    let team_ids: Vec<Uuid> = teams.iter().map(|t| t.id).collect();
+
+    // Load member counts for all teams in one query
+    let members = team_members::Entity::find()
+        .filter(team_members::Column::TeamId.is_in(team_ids.clone()))
+        .all(&state.db)
+        .await?;
+
+    use std::collections::HashMap;
+    let mut member_counts: HashMap<Uuid, i64> = HashMap::new();
+    for member in members {
+        *member_counts.entry(member.team_id).or_insert(0) += 1;
+    }
+
     let summaries: Vec<TeamSummary> = teams
         .into_iter()
         .map(|t| TeamSummary {
@@ -408,7 +431,7 @@ async fn get_hackathon_teams(
             hackathon_id: t.hackathon_id.to_string(),
             track_name: None,
             status: t.status,
-            member_count: 0,
+            member_count: *member_counts.get(&t.id).unwrap_or(&0),
         })
         .collect();
 
@@ -546,3 +569,919 @@ struct UserInfo {
     name: String,
     avatar_url: Option<String>,
 }
+
+// ============== Rating Criteria Endpoints ==============
+
+async fn get_hackathon_criteria(
+    State(state): State<SharedState>,
+    Path(hackathon_id): Path<Uuid>,
+) -> Result<Json<CriteriaListResponse>, AppError> {
+    // Verify hackathon exists
+    let _hackathon = hackathons::Entity::find_by_id(hackathon_id)
+        .one(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Хакатон не найден".to_string()))?;
+
+    let criteria = entity::rating_criteria::Entity::find()
+        .filter(entity::rating_criteria::Column::HackathonId.eq(hackathon_id))
+        .order_by_asc(entity::rating_criteria::Column::SortOrder)
+        .all(&state.db)
+        .await?;
+
+    let response: Vec<CriteriaResponse> = criteria
+        .into_iter()
+        .map(|c| CriteriaResponse {
+            id: c.id.to_string(),
+            hackathon_id: c.hackathon_id.to_string(),
+            name: c.name,
+            description: c.description,
+            weight: c.weight,
+            max_score: c.max_score,
+            sort_order: c.sort_order,
+            created_at: c.created_at.to_rfc3339(),
+            updated_at: c.updated_at.to_rfc3339(),
+        })
+        .collect();
+
+    Ok(Json(CriteriaListResponse { criteria: response }))
+}
+
+async fn create_criteria(
+    State(state): State<SharedState>,
+    claims: Option<Extension<Claims>>,
+    Path(hackathon_id): Path<Uuid>,
+    Json(req): Json<CreateCriteriaRequest>,
+) -> Result<Json<CriteriaResponse>, AppError> {
+    let claims = claims
+        .map(|Extension(claims)| claims)
+        .ok_or(AppError::Unauthorized("Требуется авторизация".to_string()))?;
+
+    req.validate()
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+
+    // Verify hackathon exists
+    let hackathon = hackathons::Entity::find_by_id(hackathon_id)
+        .one(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Хакатон не найден".to_string()))?;
+
+    // Verify user is the organizer
+    let organizer = organizers::Entity::find()
+        .filter(organizers::Column::UserId.eq(claims.sub))
+        .one(&state.db)
+        .await?;
+
+    let is_organizer = match organizer {
+        Some(org) if org.id == hackathon.organizer_id => true,
+        _ => false,
+    };
+
+    if !is_organizer {
+        return Err(AppError::Forbidden("Нет прав на редактирование".to_string()));
+    }
+
+    // Check total weight doesn't exceed 1.0
+    let existing_criteria = entity::rating_criteria::Entity::find()
+        .filter(entity::rating_criteria::Column::HackathonId.eq(hackathon_id))
+        .all(&state.db)
+        .await?;
+
+    let total_weight: f32 = existing_criteria.iter().map(|c| c.weight).sum::<f32>() + req.weight;
+    if total_weight > 1.0 {
+        return Err(AppError::BadRequest(
+            "Сумма весов критериев не может превышать 1.0".to_string(),
+        ));
+    }
+
+    // Get max sort_order
+    let max_sort_order = existing_criteria
+        .iter()
+        .map(|c| c.sort_order)
+        .max()
+        .unwrap_or(-1);
+
+    let criteria = entity::rating_criteria::ActiveModel {
+        id: Set(Uuid::new_v4()),
+        hackathon_id: Set(hackathon_id),
+        name: Set(req.name),
+        description: Set(req.description),
+        weight: Set(req.weight),
+        max_score: Set(req.max_score),
+        sort_order: Set(max_sort_order + 1),
+        created_at: Set(Utc::now().into()),
+        updated_at: Set(Utc::now().into()),
+    };
+
+    let criteria = criteria.insert(&state.db).await?;
+
+    Ok(Json(CriteriaResponse {
+        id: criteria.id.to_string(),
+        hackathon_id: criteria.hackathon_id.to_string(),
+        name: criteria.name,
+        description: criteria.description,
+        weight: criteria.weight,
+        max_score: criteria.max_score,
+        sort_order: criteria.sort_order,
+        created_at: criteria.created_at.to_rfc3339(),
+        updated_at: criteria.updated_at.to_rfc3339(),
+    }))
+}
+
+async fn update_criteria(
+    State(state): State<SharedState>,
+    claims: Option<Extension<Claims>>,
+    Path((hackathon_id, criteria_id)): Path<(Uuid, Uuid)>,
+    Json(req): Json<UpdateCriteriaRequest>,
+) -> Result<Json<CriteriaResponse>, AppError> {
+    let claims = claims
+        .map(|Extension(claims)| claims)
+        .ok_or(AppError::Unauthorized("Требуется авторизация".to_string()))?;
+
+    // Verify hackathon exists
+    let hackathon = hackathons::Entity::find_by_id(hackathon_id)
+        .one(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Хакатон не найден".to_string()))?;
+
+    // Verify user is the organizer
+    let organizer = organizers::Entity::find()
+        .filter(organizers::Column::UserId.eq(claims.sub))
+        .one(&state.db)
+        .await?;
+
+    let is_organizer = match organizer {
+        Some(org) if org.id == hackathon.organizer_id => true,
+        _ => false,
+    };
+
+    if !is_organizer {
+        return Err(AppError::Forbidden("Нет прав на редактирование".to_string()));
+    }
+
+    let criteria = entity::rating_criteria::Entity::find_by_id(criteria_id)
+        .one(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Критерий не найден".to_string()))?;
+
+    if criteria.hackathon_id != hackathon_id {
+        return Err(AppError::BadRequest(
+            "Критерий не принадлежит этому хакатону".to_string(),
+        ));
+    }
+
+    // Check total weight if being updated
+    if let Some(new_weight) = req.weight {
+        let existing_criteria = entity::rating_criteria::Entity::find()
+            .filter(entity::rating_criteria::Column::HackathonId.eq(hackathon_id))
+            .filter(entity::rating_criteria::Column::Id.ne(criteria_id))
+            .all(&state.db)
+            .await?;
+
+        let total_weight: f32 = existing_criteria.iter().map(|c| c.weight).sum::<f32>() + new_weight;
+        if total_weight > 1.0 {
+            return Err(AppError::BadRequest(
+                "Сумма весов критериев не может превышать 1.0".to_string(),
+            ));
+        }
+    }
+
+    let mut active_model: entity::rating_criteria::ActiveModel = criteria.into();
+
+    if let Some(name) = req.name {
+        active_model.name = Set(name);
+    }
+    if let Some(description) = req.description {
+        active_model.description = Set(Some(description));
+    }
+    if let Some(weight) = req.weight {
+        active_model.weight = Set(weight);
+    }
+    active_model.updated_at = Set(Utc::now().into());
+
+    let criteria = active_model.update(&state.db).await?;
+
+    Ok(Json(CriteriaResponse {
+        id: criteria.id.to_string(),
+        hackathon_id: criteria.hackathon_id.to_string(),
+        name: criteria.name,
+        description: criteria.description,
+        weight: criteria.weight,
+        max_score: criteria.max_score,
+        sort_order: criteria.sort_order,
+        created_at: criteria.created_at.to_rfc3339(),
+        updated_at: criteria.updated_at.to_rfc3339(),
+    }))
+}
+
+async fn delete_criteria(
+    State(state): State<SharedState>,
+    claims: Option<Extension<Claims>>,
+    Path((hackathon_id, criteria_id)): Path<(Uuid, Uuid)>,
+) -> Result<StatusCode, AppError> {
+    let claims = claims
+        .map(|Extension(claims)| claims)
+        .ok_or(AppError::Unauthorized("Требуется авторизация".to_string()))?;
+
+    // Verify hackathon exists
+    let hackathon = hackathons::Entity::find_by_id(hackathon_id)
+        .one(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Хакатон не найден".to_string()))?;
+
+    // Verify user is the organizer
+    let organizer = organizers::Entity::find()
+        .filter(organizers::Column::UserId.eq(claims.sub))
+        .one(&state.db)
+        .await?;
+
+    let is_organizer = match organizer {
+        Some(org) if org.id == hackathon.organizer_id => true,
+        _ => false,
+    };
+
+    if !is_organizer {
+        return Err(AppError::Forbidden("Нет прав на удаление".to_string()));
+    }
+
+    let criteria = entity::rating_criteria::Entity::find_by_id(criteria_id)
+        .one(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Критерий не найден".to_string()))?;
+
+    if criteria.hackathon_id != hackathon_id {
+        return Err(AppError::BadRequest(
+            "Критерий не принадлежит этому хакатону".to_string(),
+        ));
+    }
+
+    entity::rating_criteria::Entity::delete_by_id(criteria_id)
+        .exec(&state.db)
+        .await?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn reorder_criteria(
+    State(state): State<SharedState>,
+    claims: Option<Extension<Claims>>,
+    Path(hackathon_id): Path<Uuid>,
+    Json(req): Json<ReorderCriteriaRequest>,
+) -> Result<StatusCode, AppError> {
+    let claims = claims
+        .map(|Extension(claims)| claims)
+        .ok_or(AppError::Unauthorized("Требуется авторизация".to_string()))?;
+
+    // Verify hackathon exists
+    let hackathon = hackathons::Entity::find_by_id(hackathon_id)
+        .one(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Хакатон не найден".to_string()))?;
+
+    // Verify user is the organizer
+    let organizer = organizers::Entity::find()
+        .filter(organizers::Column::UserId.eq(claims.sub))
+        .one(&state.db)
+        .await?;
+
+    let is_organizer = match organizer {
+        Some(org) if org.id == hackathon.organizer_id => true,
+        _ => false,
+    };
+
+    if !is_organizer {
+        return Err(AppError::Forbidden("Нет прав на редактирование".to_string()));
+    }
+
+    // Update sort_order for each criteria
+    let tx = state.db.begin().await?;
+    for (i, criteria_id_str) in req.criteria_ids.iter().enumerate() {
+        let criteria_id = criteria_id_str
+            .parse::<Uuid>()
+            .map_err(|_| AppError::BadRequest("Некорректный ID критерия".to_string()))?;
+
+        let criteria = entity::rating_criteria::Entity::find_by_id(criteria_id)
+            .one(&tx)
+            .await?
+            .ok_or(AppError::NotFound("Критерий не найден".to_string()))?;
+
+        if criteria.hackathon_id != hackathon_id {
+            return Err(AppError::BadRequest(
+                "Критерий не принадлежит этому хакатону".to_string(),
+            ));
+        }
+
+        let mut active: entity::rating_criteria::ActiveModel = criteria.into();
+        active.sort_order = Set(i as i32);
+        active.update(&tx).await?;
+    }
+    tx.commit().await?;
+
+    Ok(StatusCode::OK)
+}
+
+// ============== Submission Rating Endpoints ==============
+
+async fn get_submissions_with_ratings(
+    State(state): State<SharedState>,
+    claims: Option<Extension<Claims>>,
+    Path(hackathon_id): Path<Uuid>,
+) -> Result<Json<SubmissionsWithRatingsResponse>, AppError> {
+    let claims = claims
+        .map(|Extension(claims)| claims)
+        .ok_or(AppError::Unauthorized("Требуется авторизация".to_string()))?;
+
+    // Verify hackathon exists
+    let hackathon = hackathons::Entity::find_by_id(hackathon_id)
+        .one(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Хакатон не найден".to_string()))?;
+
+    // Verify user is the organizer
+    let organizer = organizers::Entity::find()
+        .filter(organizers::Column::UserId.eq(claims.sub))
+        .one(&state.db)
+        .await?;
+
+    let is_organizer = match organizer {
+        Some(org) if org.id == hackathon.organizer_id => true,
+        _ => false,
+    };
+
+    if !is_organizer {
+        return Err(AppError::Forbidden(
+            "Нет прав на просмотр оценок".to_string(),
+        ));
+    }
+
+    // Get all teams for this hackathon with their submissions
+    let teams_data = teams::Entity::find()
+        .filter(teams::Column::HackathonId.eq(hackathon_id))
+        .all(&state.db)
+        .await?;
+
+    let mut submissions_with_ratings: Vec<SubmissionWithRating> = Vec::new();
+
+    for team in teams_data {
+        let submission = entity::submissions::Entity::find()
+            .filter(entity::submissions::Column::TeamId.eq(team.id))
+            .one(&state.db)
+            .await?;
+
+        if let Some(submission) = submission {
+            // Get existing rating if any
+            let rating = entity::submission_ratings::Entity::find()
+                .filter(
+                    entity::submission_ratings::Column::SubmissionId.eq(submission.id),
+                )
+                .find_also_related(entity::organizers::Entity)
+                .one(&state.db)
+                .await?;
+
+            let rating_response = if let Some((rating_data, organizer_opt)) = rating {
+                let scores = entity::submission_rating_scores::Entity::find()
+                    .filter(
+                        entity::submission_rating_scores::Column::SubmissionRatingId
+                            .eq(rating_data.id),
+                    )
+                    .find_also_related(entity::rating_criteria::Entity)
+                    .all(&state.db)
+                    .await?;
+
+                let score_details: Vec<ScoreDetail> = scores
+                    .into_iter()
+                    .map(|(score, criteria_opt)| {
+                        let criteria = criteria_opt.unwrap();
+                        ScoreDetail {
+                            criteria_id: score.criteria_id.to_string(),
+                            criteria_name: criteria.name,
+                            score: score.score,
+                            max_score: criteria.max_score,
+                            weight: criteria.weight,
+                            weighted_score: score.score as f32 * criteria.weight,
+                        }
+                    })
+                    .collect();
+
+                Some(RatingResponse {
+                    id: rating_data.id.to_string(),
+                    submission_id: rating_data.submission_id.to_string(),
+                    organizer_id: rating_data.organizer_id.to_string(),
+                    organizer_name: organizer_opt.map(|o| o.name).unwrap_or_default(),
+                    total_score: rating_data.total_score,
+                    feedback: rating_data.feedback,
+                    is_final: rating_data.is_final,
+                    scores: score_details,
+                    created_at: rating_data.created_at.to_rfc3339(),
+                    updated_at: rating_data.updated_at.to_rfc3339(),
+                })
+            } else {
+                None
+            };
+
+            submissions_with_ratings.push(SubmissionWithRating {
+                id: submission.id.to_string(),
+                title: submission.title,
+                description: submission.description,
+                repo_url: submission.repo_url,
+                demo_url: submission.demo_url,
+                status: submission.status,
+                submitted_at: submission.submitted_at.map(|t| t.to_rfc3339()),
+                team: TeamBrief {
+                    id: team.id.to_string(),
+                    name: team.name,
+                },
+                rating: rating_response,
+            });
+        }
+    }
+
+    Ok(Json(SubmissionsWithRatingsResponse {
+        submissions: submissions_with_ratings,
+    }))
+}
+
+async fn create_rating(
+    State(state): State<SharedState>,
+    claims: Option<Extension<Claims>>,
+    Path(hackathon_id): Path<Uuid>,
+    Json(req): Json<CreateRatingRequest>,
+) -> Result<Json<RatingResponse>, AppError> {
+    let claims = claims
+        .map(|Extension(claims)| claims)
+        .ok_or(AppError::Unauthorized("Требуется авторизация".to_string()))?;
+
+    req.validate()
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+
+    // Verify hackathon exists and has ended
+    let hackathon = hackathons::Entity::find_by_id(hackathon_id)
+        .one(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Хакатон не найден".to_string()))?;
+
+    // Check if hackathon has ended
+    if Utc::now() < hackathon.event_end {
+        return Err(AppError::BadRequest(
+            "Оценивание доступно только после окончания хакатона".to_string(),
+        ));
+    }
+
+    // Verify user is the organizer
+    let organizer = organizers::Entity::find()
+        .filter(organizers::Column::UserId.eq(claims.sub))
+        .one(&state.db)
+        .await?;
+
+    let (is_organizer, organizer_id) = match organizer {
+        Some(org) if org.id == hackathon.organizer_id => (true, org.id),
+        _ => (false, Uuid::nil()),
+    };
+
+    if !is_organizer {
+        return Err(AppError::Forbidden("Нет прав на оценивание".to_string()));
+    }
+
+    // Verify submission exists and belongs to this hackathon
+    let submission_id = req
+        .submission_id
+        .parse::<Uuid>()
+        .map_err(|_| AppError::BadRequest("Некорректный ID решения".to_string()))?;
+
+    let submission = entity::submissions::Entity::find_by_id(submission_id)
+        .one(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Решение не найдено".to_string()))?;
+
+    let team = teams::Entity::find_by_id(submission.team_id)
+        .one(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Команда не найдена".to_string()))?;
+
+    if team.hackathon_id != hackathon_id {
+        return Err(AppError::BadRequest(
+            "Решение не принадлежит этому хакатону".to_string(),
+        ));
+    }
+
+    // Check if rating already exists
+    let existing = entity::submission_ratings::Entity::find()
+        .filter(entity::submission_ratings::Column::SubmissionId.eq(submission_id))
+        .one(&state.db)
+        .await?;
+
+    if existing.is_some() {
+        return Err(AppError::BadRequest(
+            "Оценка для этого решения уже существует".to_string(),
+        ));
+    }
+
+    // Get criteria for validation
+    let criteria_list = entity::rating_criteria::Entity::find()
+        .filter(entity::rating_criteria::Column::HackathonId.eq(hackathon_id))
+        .all(&state.db)
+        .await?;
+
+    // Validate all criteria have scores
+    let criteria_ids: std::collections::HashSet<String> = criteria_list
+        .iter()
+        .map(|c| c.id.to_string())
+        .collect();
+
+    let provided_ids: std::collections::HashSet<String> = req
+        .scores
+        .iter()
+        .map(|s| s.criteria_id.clone())
+        .collect();
+
+    if provided_ids != criteria_ids {
+        return Err(AppError::BadRequest(
+            "Не все критерии имеют оценки".to_string(),
+        ));
+    }
+
+    // Calculate total score
+    let mut total_score: f32 = 0.0;
+    let mut score_details: Vec<ScoreDetail> = Vec::new();
+
+    for score_input in &req.scores {
+        let criteria = criteria_list
+            .iter()
+            .find(|c| c.id.to_string() == score_input.criteria_id)
+            .ok_or_else(|| AppError::BadRequest("Некорректный ID критерия".to_string()))?;
+
+        if score_input.score < 0 || score_input.score > criteria.max_score {
+            return Err(AppError::BadRequest(format!(
+                "Оценка {} выходит за пределы допустимого диапазона 0-{}",
+                score_input.score, criteria.max_score
+            )));
+        }
+
+        let weighted_score = score_input.score as f32 * criteria.weight;
+        total_score += weighted_score;
+
+        score_details.push(ScoreDetail {
+            criteria_id: criteria.id.to_string(),
+            criteria_name: criteria.name.clone(),
+            score: score_input.score,
+            max_score: criteria.max_score,
+            weight: criteria.weight,
+            weighted_score,
+        });
+    }
+
+    // Create rating in transaction
+    let tx = state.db.begin().await?;
+
+    let rating = entity::submission_ratings::ActiveModel {
+        id: Set(Uuid::new_v4()),
+        submission_id: Set(submission_id),
+        organizer_id: Set(organizer_id),
+        total_score: Set(total_score),
+        feedback: Set(req.feedback),
+        is_final: Set(req.is_final),
+        created_at: Set(Utc::now().into()),
+        updated_at: Set(Utc::now().into()),
+    };
+
+    let rating = rating.insert(&tx).await?;
+
+    // Insert scores
+    for score_input in req.scores {
+        let criteria_id = score_input
+            .criteria_id
+            .parse::<Uuid>()
+            .map_err(|_| AppError::BadRequest("Некорректный ID критерия".to_string()))?;
+
+        let score = entity::submission_rating_scores::ActiveModel {
+            id: Set(Uuid::new_v4()),
+            submission_rating_id: Set(rating.id),
+            criteria_id: Set(criteria_id),
+            score: Set(score_input.score),
+            created_at: Set(Utc::now().into()),
+            updated_at: Set(Utc::now().into()),
+        };
+        score.insert(&tx).await?;
+    }
+
+    tx.commit().await?;
+
+    let organizer = organizers::Entity::find_by_id(organizer_id)
+        .one(&state.db)
+        .await?;
+
+    Ok(Json(RatingResponse {
+        id: rating.id.to_string(),
+        submission_id: rating.submission_id.to_string(),
+        organizer_id: rating.organizer_id.to_string(),
+        organizer_name: organizer.map(|o| o.name).unwrap_or_default(),
+        total_score: rating.total_score,
+        feedback: rating.feedback,
+        is_final: rating.is_final,
+        scores: score_details,
+        created_at: rating.created_at.to_rfc3339(),
+        updated_at: rating.updated_at.to_rfc3339(),
+    }))
+}
+
+async fn update_rating(
+    State(state): State<SharedState>,
+    claims: Option<Extension<Claims>>,
+    Path((hackathon_id, rating_id)): Path<(Uuid, Uuid)>,
+    Json(req): Json<UpdateRatingRequest>,
+) -> Result<Json<RatingResponse>, AppError> {
+    let claims = claims
+        .map(|Extension(claims)| claims)
+        .ok_or(AppError::Unauthorized("Требуется авторизация".to_string()))?;
+
+    // Verify hackathon exists
+    let hackathon = hackathons::Entity::find_by_id(hackathon_id)
+        .one(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Хакатон не найден".to_string()))?;
+
+    // Verify user is the organizer
+    let organizer = organizers::Entity::find()
+        .filter(organizers::Column::UserId.eq(claims.sub))
+        .one(&state.db)
+        .await?;
+
+    let is_organizer = match organizer {
+        Some(org) if org.id == hackathon.organizer_id => true,
+        _ => false,
+    };
+
+    if !is_organizer {
+        return Err(AppError::Forbidden(
+            "Нет прав на редактирование".to_string(),
+        ));
+    }
+
+    let rating = entity::submission_ratings::Entity::find_by_id(rating_id)
+        .one(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Оценка не найдена".to_string()))?;
+
+    // Verify submission belongs to this hackathon
+    let submission = entity::submissions::Entity::find_by_id(rating.submission_id)
+        .one(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Решение не найдено".to_string()))?;
+
+    let team = teams::Entity::find_by_id(submission.team_id)
+        .one(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Команда не найдена".to_string()))?;
+
+    if team.hackathon_id != hackathon_id {
+        return Err(AppError::BadRequest(
+            "Оценка не принадлежит этому хакатону".to_string(),
+        ));
+    }
+
+    // Get criteria
+    let criteria_list = entity::rating_criteria::Entity::find()
+        .filter(entity::rating_criteria::Column::HackathonId.eq(hackathon_id))
+        .all(&state.db)
+        .await?;
+
+    // Calculate new total score if scores provided
+    let (new_total_score, score_details) = if !req.scores.is_empty() {
+        let mut total: f32 = 0.0;
+        let mut details: Vec<ScoreDetail> = Vec::new();
+
+        for score_input in &req.scores {
+            let criteria = criteria_list
+                .iter()
+                .find(|c| c.id.to_string() == score_input.criteria_id)
+                .ok_or_else(|| AppError::BadRequest("Некорректный ID критерия".to_string()))?;
+
+            if score_input.score < 0 || score_input.score > criteria.max_score {
+                return Err(AppError::BadRequest(format!(
+                    "Оценка {} выходит за пределы диапазона 0-{}",
+                    score_input.score, criteria.max_score
+                )));
+            }
+
+            let weighted = score_input.score as f32 * criteria.weight;
+            total += weighted;
+
+            details.push(ScoreDetail {
+                criteria_id: criteria.id.to_string(),
+                criteria_name: criteria.name.clone(),
+                score: score_input.score,
+                max_score: criteria.max_score,
+                weight: criteria.weight,
+                weighted_score: weighted,
+            });
+        }
+        (total, details)
+    } else {
+        (rating.total_score, Vec::new())
+    };
+
+    // Update rating in transaction
+    let tx = state.db.begin().await?;
+
+    let mut active: entity::submission_ratings::ActiveModel = rating.into();
+    active.total_score = Set(new_total_score);
+    if let Some(feedback) = req.feedback {
+        active.feedback = Set(Some(feedback));
+    }
+    if let Some(is_final) = req.is_final {
+        active.is_final = Set(is_final);
+    }
+    active.updated_at = Set(Utc::now().into());
+    let rating = active.update(&tx).await?;
+
+    // Update scores if provided
+    if !req.scores.is_empty() {
+        // Delete old scores
+        entity::submission_rating_scores::Entity::delete_many()
+            .filter(
+                entity::submission_rating_scores::Column::SubmissionRatingId.eq(rating_id),
+            )
+            .exec(&tx)
+            .await?;
+
+        // Insert new scores
+        for score_input in req.scores {
+            let criteria_id = score_input
+                .criteria_id
+                .parse::<Uuid>()
+                .map_err(|_| AppError::BadRequest("Некорректный ID критерия".to_string()))?;
+
+            let score = entity::submission_rating_scores::ActiveModel {
+                id: Set(Uuid::new_v4()),
+                submission_rating_id: Set(rating_id),
+                criteria_id: Set(criteria_id),
+                score: Set(score_input.score),
+                created_at: Set(Utc::now().into()),
+                updated_at: Set(Utc::now().into()),
+            };
+            score.insert(&tx).await?;
+        }
+    }
+
+    tx.commit().await?;
+
+    // Get scores if not updated
+    let final_scores = if score_details.is_empty() {
+        let db_scores = entity::submission_rating_scores::Entity::find()
+            .filter(
+                entity::submission_rating_scores::Column::SubmissionRatingId.eq(rating_id),
+            )
+            .find_also_related(entity::rating_criteria::Entity)
+            .all(&state.db)
+            .await?;
+        db_scores
+            .into_iter()
+            .map(|(score, criteria_opt)| {
+                let criteria = criteria_opt.unwrap();
+                ScoreDetail {
+                    criteria_id: score.criteria_id.to_string(),
+                    criteria_name: criteria.name,
+                    score: score.score,
+                    max_score: criteria.max_score,
+                    weight: criteria.weight,
+                    weighted_score: score.score as f32 * criteria.weight,
+                }
+            })
+            .collect()
+    } else {
+        score_details
+    };
+
+    let organizer = organizers::Entity::find_by_id(rating.organizer_id)
+        .one(&state.db)
+        .await?;
+
+    Ok(Json(RatingResponse {
+        id: rating.id.to_string(),
+        submission_id: rating.submission_id.to_string(),
+        organizer_id: rating.organizer_id.to_string(),
+        organizer_name: organizer.map(|o| o.name).unwrap_or_default(),
+        total_score: rating.total_score,
+        feedback: rating.feedback,
+        is_final: rating.is_final,
+        scores: final_scores,
+        created_at: rating.created_at.to_rfc3339(),
+        updated_at: rating.updated_at.to_rfc3339(),
+    }))
+}
+
+async fn delete_rating(
+    State(state): State<SharedState>,
+    claims: Option<Extension<Claims>>,
+    Path((hackathon_id, rating_id)): Path<(Uuid, Uuid)>,
+) -> Result<StatusCode, AppError> {
+    let claims = claims
+        .map(|Extension(claims)| claims)
+        .ok_or(AppError::Unauthorized("Требуется авторизация".to_string()))?;
+
+    // Verify hackathon exists
+    let hackathon = hackathons::Entity::find_by_id(hackathon_id)
+        .one(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Хакатон не найден".to_string()))?;
+
+    // Verify user is the organizer
+    let organizer = organizers::Entity::find()
+        .filter(organizers::Column::UserId.eq(claims.sub))
+        .one(&state.db)
+        .await?;
+
+    let is_organizer = match organizer {
+        Some(org) if org.id == hackathon.organizer_id => true,
+        _ => false,
+    };
+
+    if !is_organizer {
+        return Err(AppError::Forbidden("Нет прав на удаление".to_string()));
+    }
+
+    let rating = entity::submission_ratings::Entity::find_by_id(rating_id)
+        .one(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Оценка не найдена".to_string()))?;
+
+    // Verify submission belongs to this hackathon
+    let submission = entity::submissions::Entity::find_by_id(rating.submission_id)
+        .one(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Решение не найдено".to_string()))?;
+
+    let team = teams::Entity::find_by_id(submission.team_id)
+        .one(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Команда не найдена".to_string()))?;
+
+    if team.hackathon_id != hackathon_id {
+        return Err(AppError::BadRequest(
+            "Оценка не принадлежит этому хакатону".to_string(),
+        ));
+    }
+
+    entity::submission_ratings::Entity::delete_by_id(rating_id)
+        .exec(&state.db)
+        .await?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn get_public_ratings(
+    State(state): State<SharedState>,
+    Path(hackathon_id): Path<Uuid>,
+) -> Result<Json<PublicRatingsResponse>, AppError> {
+    // Verify hackathon exists
+    let hackathon = hackathons::Entity::find_by_id(hackathon_id)
+        .one(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Хакатон не найден".to_string()))?;
+
+    // Get all ratings for this hackathon
+    let ratings = entity::submission_ratings::Entity::find()
+        .filter(entity::submission_ratings::Column::IsFinal.eq(true))
+        .find_also_related(entity::submissions::Entity)
+        .all(&state.db)
+        .await?;
+
+    let mut rating_entries: Vec<PublicRatingEntry> = Vec::new();
+
+    for (rating, sub_opt) in ratings {
+        if let Some(submission) = sub_opt {
+            let team = teams::Entity::find_by_id(submission.team_id)
+                .one(&state.db)
+                .await?;
+
+            if let Some(team) = team {
+                // Verify team belongs to this hackathon
+                if team.hackathon_id == hackathon_id {
+                    rating_entries.push(PublicRatingEntry {
+                        rank: 0, // Will be assigned after sorting
+                        team_id: team.id.to_string(),
+                        team_name: team.name,
+                        submission_id: submission.id.to_string(),
+                        submission_title: submission.title,
+                        total_score: rating.total_score,
+                        is_final: rating.is_final,
+                        feedback: rating.feedback,
+                    });
+                }
+            }
+        }
+    }
+
+    // Sort by total_score descending and assign ranks
+    rating_entries.sort_by(|a, b| b.total_score.partial_cmp(&a.total_score).unwrap_or(std::cmp::Ordering::Equal));
+    for (i, entry) in rating_entries.iter_mut().enumerate() {
+        entry.rank = i + 1;
+    }
+
+    Ok(Json(PublicRatingsResponse {
+        hackathon_id: hackathon_id.to_string(),
+        hackathon_title: hackathon.title,
+        ratings: rating_entries,
+    }))
+}
+
+use crate::models::rating::*;

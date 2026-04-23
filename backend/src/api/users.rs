@@ -33,6 +33,7 @@ pub struct GetUserTeamQuery {
 pub fn routes() -> Router<SharedState> {
   Router::new()
     .route("/me", get(get_me).patch(update_me))
+    .route("/me/organizer-terms/accept", post(accept_organizer_terms))
     .route("/me/teams", get(get_my_team))
     .route("/me/skills", get(get_my_skills).post(add_skill).delete(remove_skill))
     .route("/me/skills/:id", post(update_skill_level))
@@ -117,6 +118,9 @@ async fn build_user_response(
     github_url: user.github_url,
     telegram_username: user.telegram_username,
     is_verified: user.is_verified,
+    organizer_terms_accepted_at: user
+      .organizer_terms_accepted_at
+      .map(|accepted_at| accepted_at.to_rfc3339()),
     created_at: user.created_at.to_string(),
     skills,
   })
@@ -165,6 +169,23 @@ async fn update_me(
 
   let user = user_active.update(&state.db).await?;
 
+  let response = build_user_response(&state, user).await?;
+  Ok(Json(response))
+}
+
+async fn accept_organizer_terms(
+  State(state): State<SharedState>,
+  Extension(claims): Extension<Claims>,
+) -> Result<Json<UserProfileResponse>, AppError> {
+  let user = users::Entity::find_by_id(claims.sub)
+    .one(&state.db)
+    .await?
+    .ok_or(AppError::NotFound("User not found".to_string()))?;
+
+  let mut user_active: users::ActiveModel = user.into();
+  user_active.organizer_terms_accepted_at = Set(Some(chrono::Utc::now().into()));
+
+  let user = user_active.update(&state.db).await?;
   let response = build_user_response(&state, user).await?;
   Ok(Json(response))
 }

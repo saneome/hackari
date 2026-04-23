@@ -24,6 +24,7 @@ use crate::{
     },
     utils::error::AppError,
 };
+use serde_json;
 use entity::{sessions, users};
 
 // Redis token expiration in seconds
@@ -45,38 +46,50 @@ pub fn routes() -> Router<SharedState> {
 
 async fn register(
     State(state): State<SharedState>,
-    jar: CookieJar,
+    _jar: CookieJar,
     Json(req): Json<RegisterRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     req.validate()
         .map_err(|e| AppError::BadRequest(e.to_string()))?;
 
-    let existing = users::Entity::find()
+    // Check if email already has a verified account in database
+    let existing_verified = users::Entity::find()
         .filter(users::Column::Email.eq(&req.email))
         .one(&state.db)
         .await?;
 
-    if existing.is_some() {
+    if existing_verified.is_some() {
         return Err(AppError::Conflict("Email already registered".to_string()));
+    }
+
+    // Check if there's already a pending registration for this email
+    let mut redis_conn = state.redis.clone();
+    let pending_key = format!("pending_reg:{}", req.email);
+    let existing_pending: Option<String> = redis_conn.get(&pending_key).await?;
+
+    if existing_pending.is_some() {
+        return Err(AppError::Conflict("Email already has a pending registration. Please check your email or wait for the current link to expire.".to_string()));
     }
 
     let password_hash = hash_password(&req.password)?;
 
-    let user = users::ActiveModel {
-        email: Set(req.email.clone()),
-        password_hash: Set(password_hash),
-        name: Set(req.name.clone()),
-        is_verified: Set(false), // User starts unverified
-        ..Default::default()
-    };
+    // Create pending registration in Redis
+    let pending_reg = PendingRegistration::new(
+        req.email.clone(),
+        password_hash,
+        req.name.clone(),
+    );
 
-    let user = user.insert(&state.db).await?;
+    let pending_json = serde_json::to_string(&pending_reg)
+        .map_err(|e| AppError::Internal(format!("Failed to serialize registration: {}", e)))?;
 
-    // Generate verification token
+    // Store pending registration with TTL
+    let _: () = redis_conn.set_ex(&pending_key, &pending_json, EMAIL_VERIFICATION_TTL).await?;
+
+    // Generate verification token (links to the pending registration)
     let verification_token = Uuid::new_v4().to_string();
-    let redis_key = format!("email_verify:{}", verification_token);
-    let mut redis_conn = state.redis.clone();
-    let _: () = redis_conn.set_ex(&redis_key, user.id.to_string(), EMAIL_VERIFICATION_TTL).await?;
+    let verify_token_key = format!("email_verify:{}", verification_token);
+    let _: () = redis_conn.set_ex(&verify_token_key, &req.email, EMAIL_VERIFICATION_TTL).await?;
 
     // Send verification email
     let frontend_url = std::env::var("FRONTEND_URL").unwrap_or_else(|_| "http://localhost:5173".to_string());
@@ -89,21 +102,9 @@ async fn register(
         tracing::info!("DEV: Verification link for {}: {}", req.email, verify_url);
     }
 
-    // Return user WITHOUT tokens since they need to verify first
-    let user_response = UserResponse {
-        id: user.id.to_string(),
-        email: user.email,
-        name: user.name,
-        avatar_url: user.avatar_url,
-        bio: user.bio,
-        github_url: user.github_url,
-        telegram_username: user.telegram_username,
-        is_verified: user.is_verified,
-    };
-
     Ok((StatusCode::CREATED, Json(serde_json::json!({
-        "user": user_response,
-        "message": "Registration successful. Please check your email to verify your account.",
+        "message": "Registration successful. Please check your email to verify your account. The link is valid for 24 hours.",
+        "email": req.email,
     }))))
 }
 
@@ -396,36 +397,59 @@ async fn verify_email(
 ) -> Result<impl IntoResponse, AppError> {
     let redis_key = format!("email_verify:{}", token);
     let mut redis_conn = state.redis.clone();
-    let user_id_str: Option<String> = redis_conn.get(&redis_key).await?;
+    let email: Option<String> = redis_conn.get(&redis_key).await?;
 
-    let Some(user_id_str) = user_id_str else {
+    let Some(email) = email else {
         return Err(AppError::BadRequest("Ссылка устарела или недействительна".to_string()));
     };
 
-    // Delete token
-    let _: () = redis_conn.del(&redis_key).await?;
+    // Get pending registration data
+    let pending_key = format!("pending_reg:{}", email);
+    let pending_json: Option<String> = redis_conn.get(&pending_key).await?;
 
-    let user_id: Uuid = user_id_str.parse()
-        .map_err(|_| AppError::Internal("Invalid user ID in token".to_string()))?;
+    let Some(pending_json) = pending_json else {
+        // Token exists but pending registration expired - delete token
+        let _: () = redis_conn.del(&redis_key).await?;
+        return Err(AppError::BadRequest("Срок подтверждения истёк. Пожалуйста, зарегистрируйтесь заново.".to_string()));
+    };
 
-    // Update user to verified
-    let user = users::Entity::find_by_id(user_id)
+    // Parse pending registration
+    let pending_reg: PendingRegistration = serde_json::from_str(&pending_json)
+        .map_err(|e| AppError::Internal(format!("Failed to parse registration data: {}", e)))?;
+
+    // Check if user already exists (race condition protection)
+    let existing = users::Entity::find()
+        .filter(users::Column::Email.eq(&email))
         .one(&state.db)
-        .await?
-        .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
+        .await?;
 
-    if user.is_verified {
-        return Ok((StatusCode::OK, Json(serde_json::json!({
-            "message": "Email уже подтверждён"
-        }))));
+    if existing.is_some() {
+        // Clean up Redis
+        let _: () = redis_conn.del(&redis_key).await?;
+        let _: () = redis_conn.del(&pending_key).await?;
+        return Err(AppError::Conflict("Email already registered".to_string()));
     }
 
-    let mut user_active: users::ActiveModel = user.into();
-    user_active.is_verified = Set(true);
-    user_active.update(&state.db).await?;
+    // Create user in database
+    let user = users::ActiveModel {
+        email: Set(pending_reg.email),
+        password_hash: Set(pending_reg.password_hash),
+        name: Set(pending_reg.name),
+        is_verified: Set(true),
+        ..Default::default()
+    };
+
+    let user = user.insert(&state.db).await?;
+
+    // Clean up Redis - delete both token and pending registration
+    let _: () = redis_conn.del(&redis_key).await?;
+    let _: () = redis_conn.del(&pending_key).await?;
+
+    tracing::info!("User {} verified and created in database", user.id);
 
     Ok((StatusCode::OK, Json(serde_json::json!({
-        "message": "Email успешно подтверждён. Теперь вы можете войти в аккаунт."
+        "message": "Email успешно подтверждён. Теперь вы можете войти в аккаунт.",
+        "user_id": user.id.to_string(),
     }))))
 }
 
@@ -443,30 +467,45 @@ async fn resend_verification(
     req.validate()
         .map_err(|e| AppError::BadRequest(e.to_string()))?;
 
-    let user = users::Entity::find()
+    let mut redis_conn = state.redis.clone();
+
+    // Check if there's a pending registration in Redis
+    let pending_key = format!("pending_reg:{}", req.email);
+    let pending_json: Option<String> = redis_conn.get(&pending_key).await?;
+
+    // Also check if user already exists in database
+    let existing_user = users::Entity::find()
         .filter(users::Column::Email.eq(&req.email))
         .one(&state.db)
         .await?;
 
-    // Don't reveal if email exists
-    let Some(user) = user else {
-        return Ok((StatusCode::OK, Json(serde_json::json!({
-            "message": "Если email зарегистрирован и не подтверждён, письмо отправлено"
-        }))));
-    };
-
-    // Already verified
-    if user.is_verified {
+    if existing_user.is_some() {
+        // User exists in database
+        if existing_user.unwrap().is_verified {
+            return Ok((StatusCode::OK, Json(serde_json::json!({
+                "message": "Email уже подтверждён"
+            }))));
+        }
+        // This shouldn't happen - verified user in DB but we shouldn't get here
         return Ok((StatusCode::OK, Json(serde_json::json!({
             "message": "Email уже подтверждён"
         }))));
     }
 
+    // Check if there's a pending registration
+    if pending_json.is_none() {
+        // No pending registration and no user in DB
+        return Ok((StatusCode::OK, Json(serde_json::json!({
+            "message": "Если email зарегистрирован и не подтверждён, письмо отправлено"
+        }))));
+    }
+
     // Generate new verification token
     let verification_token = Uuid::new_v4().to_string();
-    let redis_key = format!("email_verify:{}", verification_token);
-    let mut redis_conn = state.redis.clone();
-    let _: () = redis_conn.set_ex(&redis_key, user.id.to_string(), EMAIL_VERIFICATION_TTL).await?;
+    let verify_key = format!("email_verify:{}", verification_token);
+
+    // Store new token with TTL
+    let _: () = redis_conn.set_ex(&verify_key, &req.email, EMAIL_VERIFICATION_TTL).await?;
 
     // Send verification email
     match state.email_service.send_email_verification(&req.email, &verification_token).await {
@@ -477,7 +516,8 @@ async fn resend_verification(
         }
         Err(e) => {
             tracing::error!("Failed to send verification email: {:?}", e);
-            let _: () = redis_conn.del(&redis_key).await?;
+            // Clean up the token we just created
+            let _: () = redis_conn.del(&verify_key).await?;
             Err(AppError::Internal("Ошибка отправки письма".to_string()))
         }
     }

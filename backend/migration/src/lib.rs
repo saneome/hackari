@@ -15,6 +15,11 @@ mod m20240101_000012_add_ai_tools_skills;
 mod m20240101_000013_create_organizers;
 mod m20240101_000014_add_hackathon_fields;
 mod m20240101_000015_create_hackathon_skills;
+mod m20240101_000016_add_organizer_terms_accepted_at_to_users;
+mod m20240101_000017_create_rating_criteria;
+mod m20240101_000018_create_submission_ratings;
+mod m20240101_000019_create_submission_rating_scores;
+mod m20240101_000020_delete_unverified_users;
 
 pub struct Migrator;
 
@@ -37,6 +42,11 @@ impl MigratorTrait for Migrator {
             Box::new(m20240101_000013_create_organizers::Migration),
             Box::new(m20240101_000014_add_hackathon_fields::Migration),
             Box::new(m20240101_000015_create_hackathon_skills::Migration),
+            Box::new(m20240101_000016_add_organizer_terms_accepted_at_to_users::Migration),
+            Box::new(m20240101_000017_create_rating_criteria::Migration),
+            Box::new(m20240101_000018_create_submission_ratings::Migration),
+            Box::new(m20240101_000019_create_submission_rating_scores::Migration),
+            Box::new(m20240101_000020_delete_unverified_users::Migration),
         ]
     }
 }

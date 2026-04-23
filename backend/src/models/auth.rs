@@ -81,3 +81,23 @@ pub struct ResetPasswordResponse {
 pub struct VerificationResponse {
     pub message: String,
 }
+
+/// Pending registration data stored in Redis until email is verified
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PendingRegistration {
+    pub email: String,
+    pub password_hash: String,
+    pub name: String,
+    pub created_at: String, // ISO 8601 timestamp
+}
+
+impl PendingRegistration {
+    pub fn new(email: String, password_hash: String, name: String) -> Self {
+        Self {
+            email,
+            password_hash,
+            name,
+            created_at: chrono::Utc::now().to_rfc3339(),
+        }
+    }
+}
