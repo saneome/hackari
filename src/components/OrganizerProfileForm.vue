@@ -31,13 +31,12 @@
                 <label class="field-label">
                   Тип организации <span class="required">*</span>
                 </label>
-                <select v-model="form.type_" class="field-select" @blur="validateField('type_')">
-                  <option value="">Выберите тип</option>
-                  <option value="company">Компания</option>
-                  <option value="university">Университет</option>
-                  <option value="community">Сообщество</option>
-                  <option value="individual">Частное лицо</option>
-                </select>
+                <CustomSelect
+                  v-model="form.type_"
+                  :options="organizerTypeOptions"
+                  placeholder="Выберите тип"
+                  @blur="validateField('type_')"
+                />
                 <span v-if="errors.type_" class="error-text">{{ errors.type_ }}</span>
               </div>
 
@@ -130,6 +129,14 @@ import gsap from 'gsap'
 import { organizerApi } from '@/services/api'
 import { useAuth } from '@/composables/useAuth'
 import { useModal } from '@/composables/useModal'
+import CustomSelect from '@/components/CustomSelect.vue'
+
+const organizerTypeOptions = [
+  { value: 'company', label: 'Компания' },
+  { value: 'university', label: 'Университет' },
+  { value: 'community', label: 'Сообщество' },
+  { value: 'individual', label: 'Частное лицо' },
+]
 
 const router = useRouter()
 const { user, isAuthenticated } = useAuth()

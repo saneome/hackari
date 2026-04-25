@@ -6,11 +6,40 @@ interface User {
   email: string
   name: string
   isVerified: boolean
+  isStaff?: boolean
+  isSuperuser?: boolean
+}
+
+type RawAuthUser = Partial<User> & {
+  is_verified?: boolean
+  is_staff?: boolean
+  is_superuser?: boolean
 }
 
 const user = ref<User | null>(null)
 const isLoading = ref(false)
 const isInitialized = ref(false)
+
+const normalizeUser = (value: unknown): User | null => {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const raw = value as RawAuthUser
+
+  if (typeof raw.id !== 'string' || typeof raw.email !== 'string' || typeof raw.name !== 'string') {
+    return null
+  }
+
+  return {
+    id: raw.id,
+    email: raw.email,
+    name: raw.name,
+    isVerified: raw.isVerified ?? raw.is_verified ?? false,
+    isStaff: raw.isStaff ?? raw.is_staff ?? false,
+    isSuperuser: raw.isSuperuser ?? raw.is_superuser ?? false,
+  }
+}
 
 export function useAuth() {
   const isAuthenticated = computed(() => !!user.value)
@@ -29,7 +58,13 @@ export function useAuth() {
     const storedUser = localStorage.getItem('user')
     if (storedUser) {
       try {
-        user.value = JSON.parse(storedUser)
+        const parsedUser = normalizeUser(JSON.parse(storedUser))
+
+        if (parsedUser) {
+          user.value = parsedUser
+        } else {
+          localStorage.removeItem('user')
+        }
       } catch {
         localStorage.removeItem('user')
       }
@@ -45,8 +80,15 @@ export function useAuth() {
       user.value = null
       localStorage.removeItem('user')
     } else if (response.data) {
-      user.value = response.data
-      localStorage.setItem('user', JSON.stringify(response.data))
+      const normalizedUser = normalizeUser(response.data)
+
+      if (normalizedUser) {
+        user.value = normalizedUser
+        localStorage.setItem('user', JSON.stringify(normalizedUser))
+      } else {
+        user.value = null
+        localStorage.removeItem('user')
+      }
     }
 
     isInitialized.value = true
@@ -63,9 +105,13 @@ export function useAuth() {
     isLoading.value = false
 
     if (response.data?.user) {
-      user.value = response.data.user
-      localStorage.setItem('user', JSON.stringify(response.data.user))
-      return { success: true }
+      const normalizedUser = normalizeUser(response.data.user)
+
+      if (normalizedUser) {
+        user.value = normalizedUser
+        localStorage.setItem('user', JSON.stringify(normalizedUser))
+        return { success: true }
+      }
     }
 
     return { success: false, error: response.error }
@@ -77,9 +123,13 @@ export function useAuth() {
     isLoading.value = false
 
     if (response.data?.user) {
-      user.value = response.data.user
-      localStorage.setItem('user', JSON.stringify(response.data.user))
-      return { success: true }
+      const normalizedUser = normalizeUser(response.data.user)
+
+      if (normalizedUser) {
+        user.value = normalizedUser
+        localStorage.setItem('user', JSON.stringify(normalizedUser))
+        return { success: true }
+      }
     }
 
     return { success: false, error: response.error }
@@ -87,7 +137,11 @@ export function useAuth() {
 
   const logout = async () => {
     isLoading.value = true
-    await authApi.logout()
+    try {
+      await authApi.logout()
+    } catch {
+      // Ignore API errors - always logout locally
+    }
     isLoading.value = false
 
     user.value = null

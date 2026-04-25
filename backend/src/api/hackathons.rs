@@ -28,7 +28,9 @@ use entity::{deadlines, hackathons, team_members, teams, tracks, users, organize
 pub fn routes() -> Router<SharedState> {
     Router::new()
         .route("/", get(list_hackathons).post(create_hackathon))
+        .route("/my", get(list_my_hackathons))
         .route("/:id", get(get_hackathon).put(update_hackathon).delete(delete_hackathon))
+        .route("/:id/cancel", post(cancel_hackathon))
         .route("/:id/participants", get(get_hackathon_participants))
         .route("/:id/teams", get(get_hackathon_teams))
         // Rating criteria endpoints
@@ -46,8 +48,10 @@ pub fn routes() -> Router<SharedState> {
 async fn list_hackathons(
     State(state): State<SharedState>,
 ) -> Result<Json<HackathonListResponse>, AppError> {
+    // Only show approved and published hackathons to the public
     let hackathons = hackathons::Entity::find()
         .filter(hackathons::Column::IsPublished.eq(true))
+        .filter(hackathons::Column::Status.eq("approved"))
         .filter(hackathons::Column::EventEnd.gte(Utc::now()))
         .all(&state.db)
         .await?;
@@ -140,7 +144,8 @@ async fn create_hackathon(
         event_end: Set(req.event_end.into()),
         max_participants: Set(req.max_participants),
         organizer_id: Set(organizer_id),
-        is_published: Set(true), // Auto-publish for MVP
+        is_published: Set(false), // Not published until approved
+        status: Set("pending".to_string()), // Requires moderation approval
         contact_email: Set(req.contact_email),
         website_url: Set(req.website_url),
         social_links: Set(req.social_links),
@@ -207,8 +212,41 @@ async fn create_hackathon(
 
 async fn get_hackathon(
     State(state): State<SharedState>,
+    claims: Option<Extension<Claims>>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<HackathonResponse>, AppError> {
+    let hackathon = hackathons::Entity::find_by_id(id)
+        .one(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Хакатон не найден".to_string()))?;
+
+    // Hide non-approved hackathons from everyone except the owner and staff/superuser.
+    let needs_visibility_check = hackathon.status == "pending" || hackathon.status == "rejected";
+    if needs_visibility_check {
+        let claims = claims.map(|Extension(c)| c);
+        let mut allowed = false;
+
+        if let Some(ref c) = claims {
+            if c.is_staff || c.is_superuser {
+                allowed = true;
+            } else {
+                let organizer = organizers::Entity::find()
+                    .filter(organizers::Column::UserId.eq(c.sub))
+                    .one(&state.db)
+                    .await?;
+                if let Some(org) = organizer {
+                    if org.id == hackathon.organizer_id {
+                        allowed = true;
+                    }
+                }
+            }
+        }
+
+        if !allowed {
+            return Err(AppError::NotFound("Хакатон не найден".to_string()));
+        }
+    }
+
     let response = build_hackathon_response(&state, id).await?;
     Ok(Json(response))
 }
@@ -248,7 +286,13 @@ async fn update_hackathon(
         return Err(AppError::Forbidden("Опубликованный хакатон нельзя редактировать".to_string()));
     }
 
+    let was_rejected = hackathon.status == "rejected";
     let mut hackathon_active: hackathons::ActiveModel = hackathon.into();
+
+    // If hackathon was rejected, reset status to pending for re-moderation
+    if was_rejected {
+        hackathon_active.status = Set("pending".to_string());
+    }
 
     if let Some(title) = req.title {
         hackathon_active.title = Set(title);
@@ -267,6 +311,21 @@ async fn update_hackathon(
     }
     if let Some(max_participants) = req.max_participants {
         hackathon_active.max_participants = Set(Some(max_participants));
+    }
+    if let Some(banner_url) = req.banner_url {
+        hackathon_active.banner_url = Set(Some(banner_url));
+    }
+    if let Some(registration_start) = req.registration_start {
+        hackathon_active.registration_start = Set(registration_start.into());
+    }
+    if let Some(registration_end) = req.registration_end {
+        hackathon_active.registration_end = Set(registration_end.into());
+    }
+    if let Some(event_start) = req.event_start {
+        hackathon_active.event_start = Set(event_start.into());
+    }
+    if let Some(event_end) = req.event_end {
+        hackathon_active.event_end = Set(event_end.into());
     }
 
     // New fields
@@ -345,22 +404,83 @@ async fn delete_hackathon(
         .await?
         .ok_or(AppError::NotFound("Хакатон не найден".to_string()))?;
 
-    // Get user's organizer
     let organizer = organizers::Entity::find()
         .filter(organizers::Column::UserId.eq(claims.sub))
         .one(&state.db)
         .await?;
 
-    let can_delete = match organizer {
-        Some(org) if org.id == hackathon.organizer_id => true,
-        _ => false,
-    };
-
-    if !can_delete {
+    let is_owner = matches!(&organizer, Some(org) if org.id == hackathon.organizer_id);
+    if !is_owner {
         return Err(AppError::Forbidden("Нет прав на удаление".to_string()));
     }
 
+    // Approved hackathon with teams cannot be deleted — only cancelled
+    if hackathon.status == "approved" {
+        let team_count = teams::Entity::find()
+            .filter(teams::Column::HackathonId.eq(hackathon.id))
+            .count(&state.db)
+            .await?;
+
+        if team_count > 0 {
+            return Err(AppError::BadRequest(
+                "Нельзя удалить одобренный хакатон с зарегистрированными командами. Используйте отмену.".to_string(),
+            ));
+        }
+    }
+
+    if hackathon.status == "cancelled" {
+        return Err(AppError::BadRequest(
+            "Хакатон уже отменён и не может быть удалён организатором.".to_string(),
+        ));
+    }
+
     hackathons::Entity::delete_by_id(id).exec(&state.db).await?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn cancel_hackathon(
+    State(state): State<SharedState>,
+    claims: Option<Extension<Claims>>,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, AppError> {
+    let claims = claims
+        .map(|Extension(claims)| claims)
+        .ok_or(AppError::Unauthorized("Требуется авторизация".to_string()))?;
+
+    let hackathon = hackathons::Entity::find_by_id(id)
+        .one(&state.db)
+        .await?
+        .ok_or(AppError::NotFound("Хакатон не найден".to_string()))?;
+
+    let organizer = organizers::Entity::find()
+        .filter(organizers::Column::UserId.eq(claims.sub))
+        .one(&state.db)
+        .await?;
+
+    let is_owner = matches!(&organizer, Some(org) if org.id == hackathon.organizer_id);
+    if !is_owner {
+        return Err(AppError::Forbidden("Нет прав на отмену".to_string()));
+    }
+
+    if hackathon.status != "approved" {
+        return Err(AppError::BadRequest(
+            "Отменить можно только одобренный хакатон.".to_string(),
+        ));
+    }
+
+    let now = Utc::now();
+    let days_until_start = (hackathon.event_start.with_timezone(&Utc) - now).num_days();
+    if days_until_start < 7 {
+        return Err(AppError::BadRequest(
+            "До начала хакатона меньше 7 дней. Отмена возможна только через администратора.".to_string(),
+        ));
+    }
+
+    let mut active: hackathons::ActiveModel = hackathon.into();
+    active.status = Set("cancelled".to_string());
+    active.updated_at = Set(now.into());
+    active.update(&state.db).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -543,6 +663,7 @@ async fn build_hackathon_response(
         max_participants: hackathon.max_participants,
         organizer: organizer_response,
         is_published: hackathon.is_published,
+        status: hackathon.status,
         tracks,
         deadlines,
         participant_count,
@@ -1485,3 +1606,42 @@ async fn get_public_ratings(
 }
 
 use crate::models::rating::*;
+use crate::middleware::auth::auth_middleware;
+
+async fn list_my_hackathons(
+    State(state): State<SharedState>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<Vec<MyHackathonSummary>>, AppError> {
+    // Find organizer for this user
+    let organizer = organizers::Entity::find()
+        .filter(organizers::Column::UserId.eq(claims.sub))
+        .one(&state.db)
+        .await?;
+
+    let Some(org) = organizer else {
+        return Ok(Json(vec![]));
+    };
+
+    // Get all hackathons for this organizer regardless of status
+    let hackathons = hackathons::Entity::find()
+        .filter(hackathons::Column::OrganizerId.eq(org.id))
+        .order_by_desc(hackathons::Column::CreatedAt)
+        .all(&state.db)
+        .await?;
+
+    let summaries: Vec<MyHackathonSummary> = hackathons
+        .into_iter()
+        .map(|h| MyHackathonSummary {
+            id: h.id.to_string(),
+            title: h.title,
+            banner_url: h.banner_url,
+            status: h.status,
+            is_published: h.is_published,
+            created_at: h.created_at.to_rfc3339(),
+            event_start: h.event_start.to_rfc3339(),
+            event_end: h.event_end.to_rfc3339(),
+        })
+        .collect();
+
+    Ok(Json(summaries))
+}

@@ -71,6 +71,27 @@ impl EmailService {
         handlebars.register_template_string("password_reset", password_reset_template)
             .map_err(|e| EmailError::TemplateError(format!("Failed to register password reset template: {}", e)))?;
 
+        // Load moderation templates
+        let hackathon_approved_template = fs::read_to_string(templates_dir.join("hackathon_approved.html"))
+            .map_err(|e| EmailError::TemplateError(format!("Failed to load hackathon_approved template: {}", e)))?;
+        handlebars.register_template_string("hackathon_approved", hackathon_approved_template)
+            .map_err(|e| EmailError::TemplateError(format!("Failed to register hackathon_approved template: {}", e)))?;
+
+        let hackathon_rejected_template = fs::read_to_string(templates_dir.join("hackathon_rejected.html"))
+            .map_err(|e| EmailError::TemplateError(format!("Failed to load hackathon_rejected template: {}", e)))?;
+        handlebars.register_template_string("hackathon_rejected", hackathon_rejected_template)
+            .map_err(|e| EmailError::TemplateError(format!("Failed to register hackathon_rejected template: {}", e)))?;
+
+        let organizer_verified_template = fs::read_to_string(templates_dir.join("organizer_verified.html"))
+            .map_err(|e| EmailError::TemplateError(format!("Failed to load organizer_verified template: {}", e)))?;
+        handlebars.register_template_string("organizer_verified", organizer_verified_template)
+            .map_err(|e| EmailError::TemplateError(format!("Failed to register organizer_verified template: {}", e)))?;
+
+        let report_resolved_template = fs::read_to_string(templates_dir.join("report_resolved.html"))
+            .map_err(|e| EmailError::TemplateError(format!("Failed to load report_resolved template: {}", e)))?;
+        handlebars.register_template_string("report_resolved", report_resolved_template)
+            .map_err(|e| EmailError::TemplateError(format!("Failed to register report_resolved template: {}", e)))?;
+
         Ok(handlebars)
     }
 
@@ -130,6 +151,101 @@ impl EmailService {
         );
 
         self.send_email(to_email, subject, &html, &text).await
+    }
+
+    pub async fn send_hackathon_approved(&self, to_email: &str, hackathon_title: &str, hackathon_id: &str) -> Result<(), EmailError> {
+        if !to_email.contains('@') {
+            return Err(EmailError::InvalidEmail);
+        }
+
+        let hackathon_url = format!("{}/hackathons/{}", self.frontend_url, hackathon_id);
+
+        let mut data: HashMap<&str, String> = HashMap::new();
+        data.insert("hackathon_title", hackathon_title.to_string());
+        data.insert("hackathon_url", hackathon_url.clone());
+        data.insert("frontend_url", self.frontend_url.clone());
+
+        let subject = format!("Ваш хакатон «{}» одобрен — Hackari", hackathon_title);
+        let html = self.render_email("hackathon_approved", &data)?;
+
+        let text = format!(
+            "Ваш хакатон «{}» одобрен — Hackari\n\nВаш хакатон был успешно проверен и опубликован на платформе.\n\nПосмотреть: {}\n\nТеперь участники могут регистрироваться на ваш хакатон.",
+            hackathon_title, hackathon_url
+        );
+
+        self.send_email(to_email, &subject, &html, &text).await
+    }
+
+    pub async fn send_hackathon_rejected(&self, to_email: &str, hackathon_title: &str, reason: Option<&str>) -> Result<(), EmailError> {
+        if !to_email.contains('@') {
+            return Err(EmailError::InvalidEmail);
+        }
+
+        let dashboard_url = format!("{}/organizers/dashboard", self.frontend_url);
+
+        let reason_text = reason.unwrap_or("Причина не указана");
+
+        let mut data: HashMap<&str, String> = HashMap::new();
+        data.insert("hackathon_title", hackathon_title.to_string());
+        data.insert("reason", reason_text.to_string());
+        data.insert("dashboard_url", dashboard_url.clone());
+        data.insert("frontend_url", self.frontend_url.clone());
+
+        let subject = format!("Ваш хакатон «{}» требует доработки — Hackari", hackathon_title);
+        let html = self.render_email("hackathon_rejected", &data)?;
+
+        let text = format!(
+            "Ваш хакатон «{}» требует доработки — Hackari\n\nК сожалению, ваш хакатон не прошел модерацию.\n\nПричина: {}\n\nПерейдите в дашборд для редактирования: {}\n\nПосле внесения изменений хакатон будет повторно рассмотрен.",
+            hackathon_title, reason_text, dashboard_url
+        );
+
+        self.send_email(to_email, &subject, &html, &text).await
+    }
+
+    pub async fn send_organizer_verified(&self, to_email: &str, organizer_name: &str) -> Result<(), EmailError> {
+        if !to_email.contains('@') {
+            return Err(EmailError::InvalidEmail);
+        }
+
+        let create_url = format!("{}/hackathons/create", self.frontend_url);
+
+        let mut data: HashMap<&str, String> = HashMap::new();
+        data.insert("organizer_name", organizer_name.to_string());
+        data.insert("create_url", create_url.clone());
+        data.insert("frontend_url", self.frontend_url.clone());
+
+        let subject = "Поздравляем! Ваш профиль верифицирован — Hackari".to_string();
+        let html = self.render_email("organizer_verified", &data)?;
+
+        let text = format!(
+            "Поздравляем! Ваш профиль верифицирован — Hackari\n\nВаша организация «{}» прошла верификацию на платформе Hackari.\n\nТеперь вы можете создавать хакатоны и получать повышенный уровень доверия от участников.\n\nСоздать хакатон: {}\n\nСпасибо, что работаете с нами!",
+            organizer_name, create_url
+        );
+
+        self.send_email(to_email, &subject, &html, &text).await
+    }
+
+    pub async fn send_report_resolved(&self, to_email: &str, report_id: &str) -> Result<(), EmailError> {
+        if !to_email.contains('@') {
+            return Err(EmailError::InvalidEmail);
+        }
+
+        let profile_url = format!("{}/profile", self.frontend_url);
+
+        let mut data: HashMap<&str, String> = HashMap::new();
+        data.insert("report_id", report_id.to_string());
+        data.insert("profile_url", profile_url.clone());
+        data.insert("frontend_url", self.frontend_url.clone());
+
+        let subject = "Ваша жалоба рассмотрена — Hackari".to_string();
+        let html = self.render_email("report_resolved", &data)?;
+
+        let text = format!(
+            "Ваша жалоба рассмотрена — Hackari\n\nСпасибо за содействие в поддержании качества контента Hackari.\n\nИдентификатор жалобы: {}\n\nНаша команда модераторов рассмотрела вашу жалобу и приняла соответствующие меры.\n\nПросмотреть статус: {}",
+            report_id, profile_url
+        );
+
+        self.send_email(to_email, &subject, &html, &text).await
     }
 
     async fn send_email(&self, to_email: &str, subject: &str, html: &str, text: &str) -> Result<(), EmailError> {

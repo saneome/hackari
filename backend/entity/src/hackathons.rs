@@ -20,6 +20,7 @@ pub struct Model {
     #[sea_orm(column_name = "new_organizer_id")]
     pub organizer_id: Uuid,
     pub is_published: bool,
+    pub status: String,
     pub contact_email: Option<String>,
     pub website_url: Option<String>,
     pub social_links: Option<Json>,

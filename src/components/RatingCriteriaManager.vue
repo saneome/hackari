@@ -170,6 +170,9 @@ import { ref, computed, watch } from 'vue'
 import { ratingApi, type RatingCriteria } from '@/services/api'
 import BaseInput from '@/components/ui/BaseInput.vue'
 import BaseNumberInput from '@/components/ui/BaseNumberInput.vue'
+import { useModal } from '@/composables/useModal'
+
+const { confirm } = useModal()
 
 const props = withDefaults(defineProps<{
   hackathonId: string
@@ -306,7 +309,14 @@ async function saveEdit(criteriaId: string) {
 
 async function deleteCriteria(criteriaId: string) {
   if (!canManage.value) return
-  if (!confirm('Удалить этот критерий?')) return
+  const ok = await confirm({
+    title: 'Удалить критерий',
+    message: 'Удалить этот критерий?',
+    type: 'error',
+    confirmText: 'Удалить',
+    cancelText: 'Отмена',
+  })
+  if (!ok) return
 
   error.value = null
   try {

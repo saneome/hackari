@@ -2,10 +2,12 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { NotFoundAnimationController } from '@/utils/NotFoundAnimationController'
+import { useNotFound } from '@/composables/useNotFound'
 
 const router = useRouter()
 const containerRef = ref<HTMLElement | null>(null)
 let animationController: NotFoundAnimationController | null = null
+const { setNotFound } = useNotFound()
 
 // Navigation handlers
 const handleGoHome = (): void => {
@@ -22,6 +24,7 @@ const handleMouseMove = (e: MouseEvent): void => {
 }
 
 onMounted(() => {
+  setNotFound(true)
   if (containerRef.value) {
     animationController = new NotFoundAnimationController(containerRef.value, {
       duration: 1.2,
@@ -36,6 +39,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  setNotFound(false)
   window.removeEventListener('mousemove', handleMouseMove)
   animationController?.destroy()
   animationController = null

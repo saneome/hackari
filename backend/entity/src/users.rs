@@ -16,6 +16,8 @@ pub struct Model {
     pub telegram_username: Option<String>,
     pub is_verified: bool,
     pub organizer_terms_accepted_at: Option<DateTimeWithTimeZone>,
+    pub is_staff: bool,
+    pub is_superuser: bool,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
 }

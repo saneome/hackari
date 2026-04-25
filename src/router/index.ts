@@ -9,13 +9,27 @@ import OrganizersView from '@/views/OrganizersView.vue'
 import OrganizerDashboardView from '@/views/OrganizerDashboardView.vue'
 import OrganizerProfileView from '@/views/OrganizerProfileView.vue'
 import HackathonCreateView from '@/views/HackathonCreateView.vue'
+import HackathonEditView from '@/views/HackathonEditView.vue'
 import OrganizerTermsAcceptance from '@/components/OrganizerTermsAcceptance.vue'
 import ResetPasswordView from '@/views/ResetPasswordView.vue'
 import EmailVerificationView from '@/views/EmailVerificationView.vue'
 import NotFoundView from '@/views/NotFoundView.vue'
-
+import AdminDashboardView from '@/views/AdminDashboardView.vue'
 import HackathonCriteriaPage from '@/components/HackathonCriteriaPage.vue'
 import HackathonRatingsPage from '@/components/HackathonRatingsPage.vue'
+
+// Secret admin path from environment variable
+const ADMIN_SECRET = (import.meta as any).env?.VITE_ADMIN_SECRET || '9f2c7b6e5a1d4c8fbbd2a0c3e7f1a6d9'
+
+const hasAdminAccess = (account: unknown) => {
+  if (!account || typeof account !== 'object') {
+    return false
+  }
+
+  const user = account as Record<string, unknown>
+
+  return user.isStaff === true || user.isSuperuser === true || user.is_staff === true || user.is_superuser === true
+}
 
 const router = createRouter({
   history: createWebHistory(),
@@ -71,6 +85,12 @@ const router = createRouter({
       component: HackathonCreateView,
     },
     {
+      path: '/hackathons/:id/edit',
+      name: 'hackathon-edit',
+      component: HackathonEditView,
+      props: true,
+    },
+    {
       path: '/hackathons/:id',
       name: 'hackathon-detail',
       component: HackathonDetailView,
@@ -105,6 +125,35 @@ const router = createRouter({
       path: '/auth/verify-email',
       name: 'verify-email',
       component: EmailVerificationView,
+    },
+    {
+      path: `/admin/${ADMIN_SECRET}`,
+      name: 'admin',
+      component: AdminDashboardView,
+    },
+    {
+      path: `/admin/${ADMIN_SECRET}/hackathons`,
+      name: 'admin-hackathons',
+      component: AdminDashboardView,
+    },
+    {
+      path: `/admin/${ADMIN_SECRET}/organizers`,
+      name: 'admin-organizers',
+      component: AdminDashboardView,
+    },
+    {
+      path: `/admin/${ADMIN_SECRET}/reports`,
+      name: 'admin-reports',
+      component: AdminDashboardView,
+    },
+    {
+      path: `/admin/${ADMIN_SECRET}/users`,
+      name: 'admin-users',
+      component: AdminDashboardView,
+    },
+    {
+      path: '/admin/:pathMatch(.*)*',
+      component: NotFoundView,
     },
     {
       path: '/:pathMatch(.*)*',

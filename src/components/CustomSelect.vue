@@ -16,6 +16,7 @@ interface Props {
   disabled?: boolean
   error?: string
   required?: boolean
+  zIndex?: number
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -24,6 +25,7 @@ const props = withDefaults(defineProps<Props>(), {
   disabled: false,
   error: '',
   required: false,
+  zIndex: 90,
 })
 
 const emit = defineEmits<{
@@ -43,7 +45,7 @@ const dropdownStyle = computed(() => ({
   top: `${dropdownPosition.value.top}px`,
   left: `${dropdownPosition.value.left}px`,
   width: `${dropdownPosition.value.width}px`,
-  zIndex: 10000,
+  zIndex: props.zIndex,
 }))
 
 const updateDropdownPosition = () => {
@@ -155,12 +157,20 @@ const handleClickOutside = (e: MouseEvent) => {
   }
 }
 
+const handleReposition = () => {
+  if (isOpen.value) updateDropdownPosition()
+}
+
 onMounted(() => {
   document.addEventListener('click', handleClickOutside)
+  window.addEventListener('scroll', handleReposition, true)
+  window.addEventListener('resize', handleReposition)
 })
 
 onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside)
+  window.removeEventListener('scroll', handleReposition, true)
+  window.removeEventListener('resize', handleReposition)
 })
 
 watch(() => props.modelValue, () => {
@@ -203,6 +213,7 @@ watch(() => props.modelValue, () => {
         class="select-dropdown"
         role="listbox"
         :style="dropdownStyle"
+        @wheel.stop
       >
         <div
           v-for="(option, index) in options"

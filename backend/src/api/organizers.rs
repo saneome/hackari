@@ -205,7 +205,6 @@ async fn get_organizer_hackathons(
 
     let hackathons = hackathons::Entity::find()
         .filter(hackathons::Column::OrganizerId.eq(organizer.id))
-        .filter(hackathons::Column::IsPublished.eq(true))
         .all(&state.db)
         .await?;
 
@@ -231,6 +230,7 @@ async fn get_organizer_hackathons(
             event_end: h.event_end.to_rfc3339(),
             location_type: h.location_type,
             is_published: h.is_published,
+            status: h.status,
             participant_count,
             team_count,
         });

@@ -412,6 +412,7 @@ onMounted(() => {
   gap: 0.8rem;
   padding: 1.2rem 2.2rem;
   border-radius: 16px;
+  font-family: $font-body;
   font-size: 1.15rem;
   font-weight: 600;
   cursor: pointer;
@@ -525,7 +526,7 @@ onMounted(() => {
     top: 0;
     grid-template-columns: 1fr;
     gap: 1.5rem;
-    padding: 2rem 1.5rem 9rem;
+    padding: 7rem 1.5rem 9rem;
   }
   
   .slide-left {
@@ -551,8 +552,17 @@ onMounted(() => {
     max-width: 100%;
   }
   
+  .slide-counter {
+    margin-bottom: 0.5rem;
+  }
+
   .slide-title {
-    font-size: clamp(2rem, 3.5vw, 3rem);
+    font-size: clamp(1.8rem, 3.5vw, 3rem);
+    margin-bottom: 0.5rem;
+  }
+
+  .slide-description {
+    font-size: clamp(1rem, 1.35vw, 1.25rem);
   }
   
   .navigation-controls {
@@ -563,7 +573,23 @@ onMounted(() => {
   }
   
   .btn-nav {
-    padding: 1rem 1.5rem;
+    padding: 0.8rem 1rem;
+    font-size: 0.95rem;
+  }
+
+  .checkbox-wrapper {
+    padding: 0.8rem 1.2rem;
+    gap: 0.8rem;
+  }
+
+  .custom-checkbox {
+    width: 24px;
+    height: 24px;
+    border-radius: 8px;
+  }
+
+  .checkbox-label {
+    font-size: 1rem;
   }
 
   .slide-action--page {

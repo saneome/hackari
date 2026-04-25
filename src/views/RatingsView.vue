@@ -14,7 +14,7 @@ import {
   Crown,
 } from 'lucide-vue-next'
 import FooterPage from '@/components/FooterPage.vue'
-import { teamApi, ratingApi, type TeamCompetencyRating, type PublicRatingsResponse } from '@/services/api'
+import { teamApi, type TeamCompetencyRating } from '@/services/api'
 
 gsap.registerPlugin(ScrollTrigger)
 
@@ -31,8 +31,6 @@ const error = ref<string | null>(null)
 const selectedHackathon = ref<string | null>(null)
 const selectedCategory = ref<string | null>(null)
 const categories = ref<string[]>([])
-const ratingMode = ref<'competency' | 'organizer'>('competency')
-const organizerRatings = ref<PublicRatingsResponse | null>(null)
 
 // Template refs
 const heroSection = ref<HTMLElement | null>(null)
@@ -114,20 +112,6 @@ const loadRatings = async () => {
   }
 }
 
-const setRatingMode = async (mode: 'competency' | 'organizer') => {
-  ratingMode.value = mode
-  if (mode === 'organizer') {
-    isLeaderboardLoading.value = true
-    // Load organizer ratings for selected hackathon
-    if (selectedHackathon.value) {
-      const res = await ratingApi.getPublicRatings(selectedHackathon.value)
-      if (res.data) {
-        organizerRatings.value = res.data
-      }
-    }
-    isLeaderboardLoading.value = false
-  }
-}
 
 const selectCategory = async (category: string | null) => {
   selectedCategory.value = category
@@ -212,19 +196,19 @@ const animateHero = () => {
   }
 
   // Filter buttons
-  const filterSection = document.querySelector('.filter-section')
-  if (filterSection) {
-    gsap.fromTo(filterSection,
+  const filterSections = document.querySelectorAll('.filter-section')
+  filterSections.forEach((section, index) => {
+    gsap.fromTo(section,
       { y: 30, opacity: 0 },
       {
         y: 0,
         opacity: 1,
         duration: 0.6,
         ease: 'power3.out',
-        delay: 1.4,
+        delay: 1.4 + index * 0.1,
       }
     )
-  }
+  })
 
   // Setup leaderboard reveal on scroll
   if (leaderboardSection.value) {
@@ -338,29 +322,8 @@ const getRankColor = (rank: number) => {
               <span class="mono text-dim">// рейтинг команд по компетенциям</span>
             </p>
 
-      <!-- Rating Mode Switch -->
-      <div class="filter-section mode-switch">
-        <span class="filter-label mono">режим:</span>
-        <div class="filter-buttons">
-          <button
-            class="filter-btn"
-            :class="{ active: ratingMode === 'competency' }"
-            @click="setRatingMode('competency')"
-          >
-            <span>по навыкам</span>
-          </button>
-          <button
-            class="filter-btn"
-            :class="{ active: ratingMode === 'organizer' }"
-            @click="setRatingMode('organizer')"
-          >
-            <span>по оценкам оргов</span>
-          </button>
-        </div>
-      </div>
-
       <!-- Category Filter -->
-      <div v-if="categories.length > 0" class="filter-section">
+      <div class="filter-section">
         <span class="filter-label mono">компетенция:</span>
         <div class="filter-buttons">
           <button
@@ -743,7 +706,6 @@ const getRankColor = (rank: number) => {
   align-items: center;
   gap: 12px;
   margin-top: 16px;
-  opacity: 0;
 }
 
 .filter-label {

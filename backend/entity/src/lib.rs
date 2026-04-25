@@ -17,3 +17,4 @@ pub mod hackathon_skill;
 pub mod rating_criteria;
 pub mod submission_ratings;
 pub mod submission_rating_scores;
+pub mod reports;

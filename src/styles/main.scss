@@ -69,6 +69,16 @@ h1, h2, h3, h4, h5, h6 {
   letter-spacing: -0.02em;
 }
 
+// Buttons inherit our custom font everywhere — Vue components sometimes
+// reset font-family per-component, so enforce it globally.
+button,
+input[type='button'],
+input[type='submit'],
+input[type='reset'],
+.btn {
+  font-family: $font-body;
+}
+
 .mono {
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
 }

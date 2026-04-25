@@ -3,11 +3,13 @@ import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
-import { Calendar, MapPin, Users, Trophy, Mail, Globe, ChevronRight, Plus, UserPlus, X, ExternalLink, Github, Play, FileText, Crown, LogOut, Trash2, Edit3, Check } from 'lucide-vue-next'
+import { Calendar, MapPin, Users, Trophy, Mail, Globe, ChevronRight, Plus, UserPlus, X, ExternalLink, Github, Play, FileText, Crown, LogOut, Trash2, Edit3, Check, CheckCircle, Flag } from 'lucide-vue-next'
 import { hackathonApi, organizerApi, fetchApi, userApi, teamApi } from '@/services/api'
 import { useAuth } from '@/composables/useAuth'
 import { useModal } from '@/composables/useModal'
 import CustomSelect from '@/components/CustomSelect.vue'
+import ReportModal from '@/components/ReportModal.vue'
+import NotFoundPage from '@/components/NotFoundPage.vue'
 import type { Hackathon, TeamDetail } from '@/services/api'
 
 gsap.registerPlugin(ScrollTrigger)
@@ -24,6 +26,7 @@ const { alert, confirm } = useModal()
 const hackathon = ref<Hackathon | null>(null)
 const isLoading = ref(true)
 const error = ref('')
+const notFound = ref(false)
 const userOrganizerId = ref<string | null>(null)
 const userTeam = ref<{ id: string; name: string; role: string } | null>(null)
 const teams = ref<{ id: string; name: string; member_count: number; track_name?: string }[]>([])
@@ -35,6 +38,9 @@ const newTeamName = ref('')
 const newTeamDescription = ref('')
 const selectedTrackId = ref('')
 const showCreateTeamModal = ref(false)
+
+// Report modal
+const showReportModal = ref(false)
 
 // Team detail modal
 const selectedTeam = ref<TeamDetail | null>(null)
@@ -63,6 +69,7 @@ const canCreateOrJoinTeam = computed(() => {
   if (!isAuthenticated.value) return false
   if (isOrganizer.value) return false
   if (userTeam.value) return false
+  if (hackathon.value?.status === 'cancelled') return false
   return true
 })
 
@@ -89,8 +96,11 @@ const formattedRegistrationPeriod = computed(() => {
   }
 })
 
+const isCancelled = computed(() => hackathon.value?.status === 'cancelled')
+
 const isRegistrationOpen = computed(() => {
   if (!hackathon.value) return false
+  if (isCancelled.value) return false
   const now = new Date()
   const start = new Date(hackathon.value.registration_start)
   const end = new Date(hackathon.value.registration_end)
@@ -117,6 +127,7 @@ const locationText = computed(() => {
 const fetchData = async () => {
   isLoading.value = true
   error.value = ''
+  notFound.value = false
 
   try {
     // Fetch hackathon details
@@ -124,7 +135,11 @@ const fetchData = async () => {
     if (response.data) {
       hackathon.value = response.data
     } else {
-      error.value = 'Хакатон не найден'
+      if (response.status === 404) {
+        notFound.value = true
+      } else {
+        error.value = response.error || 'Хакатон не найден'
+      }
       return
     }
 
@@ -599,6 +614,9 @@ onMounted(() => {
       <span>Загрузка...</span>
     </div>
 
+    <!-- Not Found -->
+    <NotFoundPage v-else-if="notFound" />
+
     <!-- Error State -->
     <div v-else-if="error" class="error-container">
       <p>{{ error }}</p>
@@ -609,6 +627,18 @@ onMounted(() => {
 
     <!-- Content -->
     <template v-else-if="hackathon">
+      <div v-if="isCancelled" class="cancelled-banner">
+        <strong>Хакатон отменён организатором.</strong>
+        <span>Регистрация закрыта. Если у вас остались вопросы — свяжитесь с организатором.</span>
+      </div>
+      <div v-else-if="hackathon.status === 'pending'" class="moderation-banner pending">
+        <strong>Хакатон на модерации.</strong>
+        <span>Эта страница видна только вам и администраторам, пока хакатон не пройдёт проверку.</span>
+      </div>
+      <div v-else-if="hackathon.status === 'rejected'" class="moderation-banner rejected">
+        <strong>Хакатон отклонён модератором.</strong>
+        <span>Внесите изменения и сохраните — хакатон автоматически вернётся на повторную проверку.</span>
+      </div>
       <!-- Hero Section -->
       <section class="hero-section">
         <div v-if="hackathon.banner_url" class="hero-banner">
@@ -643,9 +673,11 @@ onMounted(() => {
       <div class="content-wrapper">
         <!-- Organizer Notice -->
         <div v-if="isOrganizer" class="organizer-notice animate-section">
-          <div class="notice-content">
-            <span class="notice-icon">👑</span>
-            <p>Вы организатор этого хакатона. Организаторы не могут участвовать в хакатоне.</p>
+          <div class="container">
+            <div class="notice-content">
+              <span class="notice-icon">👑</span>
+              <p>Вы организатор этого хакатона. Организаторы не могут участвовать в хакатоне.</p>
+            </div>
           </div>
         </div>
 
@@ -876,7 +908,12 @@ onMounted(() => {
                 <span v-else class="avatar-placeholder">{{ hackathon.organizer.name[0] }}</span>
               </div>
               <div class="organizer-info">
-                <span class="organizer-name">{{ hackathon.organizer.name }}</span>
+                <div class="organizer-name-row">
+            <span class="organizer-name">{{ hackathon.organizer.name }}</span>
+            <span v-if="hackathon.organizer.is_verified" class="verified-badge" title="Верифицированный организатор">
+              <CheckCircle :size="14" />
+            </span>
+          </div>
                 <div v-if="hackathon.contact_email" class="organizer-contact">
                   <Mail :size="14" />
                   <a :href="`mailto:${hackathon.contact_email}`">{{ hackathon.contact_email }}</a>
@@ -895,6 +932,24 @@ onMounted(() => {
             </div>
           </div>
         </section>
+  <!-- Report Section -->
+  <section class="section report-section animate-section">
+    <div class="container">
+      <div class="report-card">
+        <div class="report-icon">
+          <Flag :size="24" />
+        </div>
+        <div class="report-info">
+          <span class="report-title">Заметили нарушение?</span>
+          <span class="report-description">Сообщите нам о проблеме с этим хакатоном</span>
+        </div>
+        <button class="btn btn-secondary" @click="showReportModal = true">
+          <Flag :size="16" />
+          Пожаловаться
+        </button>
+      </div>
+    </div>
+  </section>
       </div>
     </template>
 
@@ -1151,6 +1206,15 @@ onMounted(() => {
   </div>
 </div>
 </div>
+
+<!-- Report Modal -->
+<ReportModal
+  v-if="hackathon"
+  v-model:show="showReportModal"
+  target-type="hackathon"
+  :target-id="hackathon.id"
+  :target-name="hackathon.title"
+/>
 </template>
 
 <style scoped lang="scss">
@@ -1193,6 +1257,51 @@ onMounted(() => {
 
   &:hover {
     text-decoration: underline;
+  }
+}
+
+.cancelled-banner,
+.moderation-banner {
+  position: relative;
+  z-index: 2;
+  margin: 6rem auto 0;
+  max-width: 1200px;
+  padding: 1rem 1.5rem;
+  border-radius: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: baseline;
+  border: 1px solid;
+}
+
+.cancelled-banner {
+  background: rgba(220, 80, 80, 0.12);
+  border-color: rgba(220, 80, 80, 0.5);
+  color: #f5b7b7;
+
+  strong {
+    color: #ffd6d6;
+  }
+}
+
+.moderation-banner.pending {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.5);
+  color: #fcd9a0;
+
+  strong {
+    color: #fde7c2;
+  }
+}
+
+.moderation-banner.rejected {
+  background: rgba(220, 80, 80, 0.12);
+  border-color: rgba(220, 80, 80, 0.5);
+  color: #f5b7b7;
+
+  strong {
+    color: #ffd6d6;
   }
 }
 
@@ -1759,9 +1868,25 @@ onMounted(() => {
   gap: 6px;
 }
 
+.organizer-name-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .organizer-name {
   font-weight: 600;
   font-size: 1.1rem;
+}
+
+.verified-badge {
+  display: flex;
+  align-items: center;
+  color: $color-accent;
+
+  svg {
+    fill: rgba($color-accent, 0.2);
+  }
 }
 
 .organizer-contact,
@@ -1822,6 +1947,62 @@ onMounted(() => {
 
   &:hover:not(:disabled) {
     border-color: $color-text;
+  }
+}
+
+// Report Section
+.report-section {
+  padding: 20px 0 60px;
+}
+
+.report-card {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 1.5rem;
+  background: $color-surface;
+  border: 1px solid $color-border;
+  border-radius: 12px;
+
+  .report-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px;
+    height: 56px;
+    background: rgba($color-secondary, 0.1);
+    border-radius: 12px;
+    color: $color-secondary;
+    flex-shrink: 0;
+  }
+
+  .report-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+
+    .report-title {
+      font-weight: 600;
+      font-size: 1.1rem;
+    }
+
+    .report-description {
+      font-size: 0.9rem;
+      color: $color-text-dim;
+    }
+  }
+}
+
+@media (max-width: 768px) {
+  .report-card {
+    flex-direction: column;
+    text-align: center;
+    gap: 1rem;
+
+    .btn {
+      width: 100%;
+    }
   }
 }
 

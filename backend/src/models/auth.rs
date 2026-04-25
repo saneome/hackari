@@ -35,6 +35,8 @@ pub struct UserResponse {
     pub github_url: Option<String>,
     pub telegram_username: Option<String>,
     pub is_verified: bool,
+    pub is_staff: bool,
+    pub is_superuser: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -1,3 +1,4 @@
+pub mod admin;
 pub mod auth;
 pub mod user;
 pub mod hackathon;
@@ -5,3 +6,4 @@ pub mod team;
 pub mod invitation;
 pub mod organizer;
 pub mod rating;
+pub mod report;

@@ -1,12 +1,20 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { gsap } from 'gsap'
 import BaseButton from './ui/BaseButton.vue'
 import BaseInput from './ui/BaseInput.vue'
 import { useAuth } from '@/composables/useAuth'
-import { authApi } from '@/services/api'
+import { authApi, organizerApi, userApi } from '@/services/api'
 
 const { login } = useAuth()
+const route = useRoute()
+const router = useRouter()
+
+const redirectUrl = computed(() => {
+  const redirect = route.query.redirect
+  return typeof redirect === 'string' && redirect ? redirect : '/'
+})
 
 type AuthMode = 'login' | 'register' | 'reset-email' | 'verify-pending'
 type FieldName = 'name' | 'email' | 'password' | 'confirmPassword' | 'newPassword'
@@ -381,10 +389,16 @@ const handleSubmit = async () => {
 
     isSuccess.value = true
 
+    // Wait for success animation, then check profile and redirect appropriately
     setTimeout(() => {
-      isSuccess.value = false
-      resetForm()
-      window.location.href = '/'
+      void (async () => {
+        isSuccess.value = false
+        resetForm()
+
+        // Determine final redirect based on user profile and redirect URL
+        const finalRedirect = await determineRedirectTarget(redirectUrl.value)
+        window.location.href = finalRedirect
+      })()
     }, 1500)
   } catch (error) {
     isLoading.value = false
@@ -397,6 +411,36 @@ const resetForm = () => {
   currentFieldIndex.value = 0
   showSubmitButton.value = false
   errors.value = {}
+}
+
+const determineRedirectTarget = async (requestedRedirect: string): Promise<string> => {
+  // Only check for /organizers/ paths that need validation
+  if (!requestedRedirect.startsWith('/organizers')) {
+    return requestedRedirect
+  }
+
+  try {
+    // Try to get organizer profile
+    const organizerResponse = await organizerApi.getMyOrganizer()
+    if (organizerResponse.data) {
+      return '/organizers/dashboard'
+    }
+
+    // Check if user accepted organizer terms
+    const profileResponse = await userApi.getMe()
+    if (profileResponse.data) {
+      if (profileResponse.data.organizerTermsAcceptedAt) {
+        return '/organizers/profile'
+      } else {
+        return '/organizers/rules'
+      }
+    }
+  } catch {
+    // If any check fails, fall back to organizer rules
+    return '/organizers/rules'
+  }
+
+  return '/organizers/rules'
 }
 
 const switchMode = (newMode: AuthMode) => {

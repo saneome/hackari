@@ -19,6 +19,7 @@ import {
   Code2,
   Sparkles
 } from 'lucide-vue-next'
+import CustomSelect from '@/components/CustomSelect.vue'
 
 gsap.registerPlugin(ScrollTrigger)
 
@@ -203,6 +204,10 @@ const getAvailableSkillsOptions = () => {
   const existingSkillIds = new Set(profile.value?.skills.map(s => s.id) || [])
   return availableSkills.value.filter(s => !existingSkillIds.has(s.id))
 }
+
+const availableSkillsSelectOptions = computed(() =>
+  getAvailableSkillsOptions().map(s => ({ value: s.id, label: s.name }))
+)
 </script>
 
 <template>
@@ -460,11 +465,11 @@ const getAvailableSkillsOptions = () => {
         <div class="modal-body">
           <div class="form-group">
             <label class="mono">навык</label>
-            <select v-model="selectedSkillId" class="skill-select">
-              <option v-for="skill in getAvailableSkillsOptions()" :key="skill.id" :value="skill.id">
-                {{ skill.name }}
-              </option>
-            </select>
+            <CustomSelect
+              v-model="selectedSkillId"
+              :options="availableSkillsSelectOptions"
+              placeholder="Выберите навык"
+            />
           </div>
           <div class="form-group">
             <label class="mono">уровень владения</label>

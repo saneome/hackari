@@ -3,8 +3,8 @@
     <div class="container">
       <div class="wizard-card" ref="wizardCard">
         <div class="wizard-header">
-          <h1 class="page-title">Создание хакатона</h1>
-          <p class="page-subtitle">Заполните информацию о вашем хакатоне</p>
+          <h1 class="page-title">{{ isEditMode ? 'Редактирование хакатона' : 'Создание хакатона' }}</h1>
+          <p class="page-subtitle">{{ isEditMode ? 'Внесите изменения в ваш хакатон' : 'Заполните информацию о вашем хакатоне' }}</p>
 
           <!-- Stepper -->
           <div class="stepper">
@@ -84,12 +84,12 @@
                   <label class="field-label">
                     Тип проведения <span class="required">*</span>
                   </label>
-                  <select v-model="form.location_type" class="field-select" @blur="validateField('location_type')">
-                    <option value="">Выберите тип</option>
-                    <option value="online">Онлайн</option>
-                    <option value="offline">Офлайн</option>
-                    <option value="hybrid">Гибрид</option>
-                  </select>
+                  <CustomSelect
+                    v-model="form.location_type"
+                    :options="locationTypeOptions"
+                    placeholder="Выберите тип"
+                    @blur="validateField('location_type')"
+                  />
                   <span v-if="errors.location_type" class="error-text">{{ errors.location_type }}</span>
                 </div>
 
@@ -234,12 +234,11 @@
 
                 <div class="form-field">
                   <label class="field-label">Валюта</label>
-                  <select v-model="form.prize_currency" class="field-select">
-                    <option value="">Выберите валюту</option>
-                    <option value="RUB">RUB — Российский рубль</option>
-                    <option value="USD">USD — Доллар США</option>
-                    <option value="EUR">EUR — Евро</option>
-                  </select>
+                  <CustomSelect
+                    v-model="form.prize_currency"
+                    :options="currencyOptions"
+                    placeholder="Выберите валюту"
+                  />
                 </div>
               </div>
 
@@ -310,13 +309,11 @@
 
                 <div class="form-field">
                   <label class="field-label">Возрастное ограничение</label>
-                  <select v-model="form.age_restriction" class="field-select">
-                    <option value="">Без ограничений</option>
-                    <option value="14+">14+</option>
-                    <option value="16+">16+</option>
-                    <option value="18+">18+</option>
-                    <option value="21+">21+</option>
-                  </select>
+                  <CustomSelect
+                    v-model="form.age_restriction"
+                    :options="ageRestrictionOptions"
+                    placeholder="Без ограничений"
+                  />
                 </div>
               </div>
             </div>
@@ -548,7 +545,7 @@
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <polyline points="20 6 9 17 4 12"/>
                 </svg>
-                Создать хакатон
+                {{ isEditMode ? 'Сохранить изменения' : 'Создать хакатон' }}
               </template>
             </button>
           </div>
@@ -562,11 +559,17 @@
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import gsap from 'gsap'
-import { organizerApi, userApi } from '@/services/api'
+import { organizerApi, userApi, hackathonApi } from '@/services/api'
 import type { AvailableSkill, CreateHackathonRequest, CreateTrackRequest, CreateDeadlineRequest } from '@/services/api'
 import { useAuth } from '@/composables/useAuth'
 import { useModal } from '@/composables/useModal'
 import CustomSelect from '@/components/CustomSelect.vue'
+
+const props = defineProps<{
+  editId?: string
+}>()
+
+const isEditMode = computed(() => !!props.editId)
 
 const router = useRouter()
 const { user } = useAuth()
@@ -856,31 +859,43 @@ const handleSubmit = async () => {
       prize_description: form.prize_description || undefined,
     }
 
-    console.log('Sending data:', JSON.stringify(data, null, 2))
+    if (isEditMode.value && props.editId) {
+      const { new_organizer_id: _omit, tracks: _tracksOmit, deadlines: _deadlinesOmit, ...updateData } = data as any
+      const response = await organizerApi.updateHackathon(props.editId, updateData)
 
-    const response = await organizerApi.createHackathon(data)
+      if (response.error) {
+        await alert({
+          title: 'Ошибка',
+          message: response.error,
+          type: 'error',
+        })
+      } else {
+        router.push(`/hackathons/${props.editId}`)
+      }
+    } else {
+      const response = await organizerApi.createHackathon(data)
 
-    if (response.data) {
-      // Redirect to the newly created hackathon detail page
+      if (response.data) {
         const hackathonId = (response.data as any).id
         if (hackathonId) {
           router.push(`/hackathons/${hackathonId}`)
         } else {
           router.push('/organizers/dashboard')
         }
-} else {
+      } else {
         await alert({
           title: 'Ошибка',
           message: response.error || 'Неизвестная ошибка',
-          type: 'error'
+          type: 'error',
         })
       }
-    } catch (error: any) {
-      await alert({
-        title: 'Ошибка',
-        message: error?.message || 'Произошла ошибка при создании хакатона',
-        type: 'error'
-      })
+    }
+  } catch (error: any) {
+    await alert({
+      title: 'Ошибка',
+      message: error?.message || (isEditMode.value ? 'Произошла ошибка при сохранении' : 'Произошла ошибка при создании хакатона'),
+      type: 'error',
+    })
   } finally {
     isSubmitting.value = false
   }
@@ -925,8 +940,59 @@ onMounted(async () => {
 
   isLoadingSkills.value = false
 
-  // Add initial track
-  if (form.tracks.length === 0) {
+  if (isEditMode.value && props.editId) {
+    const hackathonResp = await hackathonApi.getById(props.editId)
+    if (hackathonResp.data) {
+      const h = hackathonResp.data as any
+      const toLocalInput = (iso?: string) => {
+        if (!iso) return ''
+        const d = new Date(iso)
+        const tzOffset = d.getTimezoneOffset() * 60000
+        return new Date(d.getTime() - tzOffset).toISOString().slice(0, 16)
+      }
+      Object.assign(form, {
+        title: h.title || '',
+        description: h.description || '',
+        location_type: h.location_type || '',
+        city: h.city || '',
+        venue: h.venue || '',
+        registration_start: toLocalInput(h.registration_start),
+        registration_end: toLocalInput(h.registration_end),
+        event_start: toLocalInput(h.event_start),
+        event_end: toLocalInput(h.event_end),
+        contact_email: h.contact_email || '',
+        website_url: h.website_url || '',
+        social_links: h.social_links,
+        prize_pool: h.prize_pool ?? '',
+        prize_currency: h.prize_currency || '',
+        prize_description: h.prize_description || '',
+        max_participants: h.max_participants ?? undefined,
+        requirements: h.requirements || '',
+        team_size_min: h.team_size_min ?? 1,
+        team_size_max: h.team_size_max ?? 5,
+        age_restriction: h.age_restriction || '',
+      })
+      form.banner_url = h.banner_url || ''
+      socialLinksString.value = h.social_links ? JSON.stringify(h.social_links) : ''
+      selectedSkills.value = new Set((h.skills || []).map((s: any) => s.id))
+      form.skills = Array.from(selectedSkills.value)
+      form.tracks = (h.tracks || []).map((t: any) => ({
+        name: t.name || '',
+        description: t.description || '',
+        prize_description: t.prize_description || '',
+        max_teams: t.max_teams ?? undefined,
+      }))
+      form.deadlines = (h.deadlines || []).map((d: any) => ({
+        name: d.name || '',
+        description: d.description || '',
+        deadline_at: toLocalInput(d.deadline_at),
+        is_milestone: !!d.is_milestone,
+      }))
+    }
+  }
+
+  // Add initial track only in create mode
+  if (!isEditMode.value && form.tracks.length === 0) {
     addTrack()
   }
 })

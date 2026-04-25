@@ -5,10 +5,12 @@ import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { useRouter } from 'vue-router'
 import { PhUsers as Users, PhMegaphone as Megaphone, PhNetwork as Network, PhLightbulb as Lightbulb, PhArrowRight as ArrowRight, PhCheckCircle as CheckCircle, PhBriefcase as Briefcase } from '@phosphor-icons/vue'
 import { organizerApi, userApi } from '@/services/api'
+import { useAuth } from '@/composables/useAuth'
 
 gsap.registerPlugin(ScrollTrigger)
 
 const router = useRouter()
+const { isAuthenticated } = useAuth()
 
 const heroSection = ref<HTMLElement | null>(null)
 const titleWrapper = ref<HTMLElement | null>(null)
@@ -60,6 +62,13 @@ const steps = [
 ]
 
 const navigateToTerms = async () => {
+  // If not authenticated, redirect to auth first
+  if (!isAuthenticated.value) {
+    // Store target URL to redirect back after login
+    router.push({ path: '/auth', query: { redirect: '/organizers/rules' } })
+    return
+  }
+
   // Check if user already has organizer profile
   const response = await organizerApi.getMyOrganizer()
   if (response.data) {

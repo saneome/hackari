@@ -52,14 +52,23 @@ async fn register(
     req.validate()
         .map_err(|e| AppError::BadRequest(e.to_string()))?;
 
-    // Check if email already has a verified account in database
-    let existing_verified = users::Entity::find()
+    // Check if email exists in database
+    let existing_user = users::Entity::find()
         .filter(users::Column::Email.eq(&req.email))
         .one(&state.db)
         .await?;
 
-    if existing_verified.is_some() {
-        return Err(AppError::Conflict("Email already registered".to_string()));
+    if let Some(user) = existing_user {
+        if user.is_verified {
+            // User is verified - cannot re-register
+            return Err(AppError::Conflict("Email already registered".to_string()));
+        } else {
+            // User exists but not verified - delete old record and allow re-registration
+            tracing::info!("Deleting unverified user with email: {}", req.email);
+            users::Entity::delete_by_id(user.id)
+                .exec(&state.db)
+                .await?;
+        }
     }
 
     // Check if there's already a pending registration for this email
@@ -68,7 +77,9 @@ async fn register(
     let existing_pending: Option<String> = redis_conn.get(&pending_key).await?;
 
     if existing_pending.is_some() {
-        return Err(AppError::Conflict("Email already has a pending registration. Please check your email or wait for the current link to expire.".to_string()));
+        // Delete old pending registration to allow re-registration
+        tracing::info!("Deleting old pending registration for email: {}", req.email);
+        let _: () = redis_conn.del(&pending_key).await?;
     }
 
     let password_hash = hash_password(&req.password)?;
@@ -132,8 +143,8 @@ async fn login(
         return Err(AppError::Unauthorized("Неверный email или пароль".to_string()));
     }
 
-    let access_token = generate_access_token(user.id, &user.email)?;
-    let refresh_token = generate_refresh_token(user.id, &user.email)?;
+    let access_token = generate_access_token(user.id, &user.email, user.is_staff, user.is_superuser)?;
+    let refresh_token = generate_refresh_token(user.id, &user.email, user.is_staff, user.is_superuser)?;
 
     let session_token = generate_session_token();
     let session_hash = hash_password(&session_token).unwrap_or_default();
@@ -173,6 +184,8 @@ async fn login(
         github_url: user.github_url,
         telegram_username: user.telegram_username,
         is_verified: user.is_verified,
+                is_staff: user.is_staff,
+                is_superuser: user.is_superuser,
     };
 
     let response = AuthResponse {
@@ -237,8 +250,8 @@ async fn refresh_token(
         return Err(AppError::Forbidden("Email не подтверждён".to_string()));
     }
 
-    let access_token = generate_access_token(user.id, &user.email)?;
-    let refresh_token = generate_refresh_token(user.id, &user.email)?;
+    let access_token = generate_access_token(user.id, &user.email, user.is_staff, user.is_superuser)?;
+    let refresh_token = generate_refresh_token(user.id, &user.email, user.is_staff, user.is_superuser)?;
 
     let access_cookie = Cookie::build(("access_token", access_token.clone()))
         .http_only(true)
@@ -285,6 +298,8 @@ async fn get_current_user(
             github_url: user.github_url,
             telegram_username: user.telegram_username,
             is_verified: user.is_verified,
+                is_staff: user.is_staff,
+                is_superuser: user.is_superuser,
         };
 
         return Ok(Json(user_response));

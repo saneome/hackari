@@ -4,6 +4,7 @@ interface ApiResponse<T> {
   data?: T
   error?: string
   message?: string
+  status?: number
 }
 
 interface LoginRequest {
@@ -35,6 +36,8 @@ interface User {
   email: string
   name: string
   isVerified: boolean
+  isStaff?: boolean
+  isSuperuser?: boolean
 }
 
 let isRefreshing = false
@@ -133,7 +136,7 @@ async function fetchApi<T>(
       }
 
       const errorMessage = errorMessages[response.status] || errorData.message || 'произошла ошибка'
-      return { error: errorMessage }
+      return { error: errorMessage, status: response.status }
     }
 
     // Handle empty response (e.g., 204 No Content)
@@ -238,6 +241,7 @@ export interface Hackathon {
   description?: string
   organizer?: OrganizerInfo
   is_published: boolean
+  status: string
   tracks: Track[]
   deadlines: Deadline[]
   contact_email?: string
@@ -267,6 +271,16 @@ export const hackathonApi = {
   getById: (id: string) =>
     fetchApi<Hackathon>(`/api/hackathons/${id}`, {
       method: 'GET',
+    }),
+
+  delete: (id: string) =>
+    fetchApi<void>(`/api/hackathons/${id}`, {
+      method: 'DELETE',
+    }),
+
+  cancel: (id: string) =>
+    fetchApi<void>(`/api/hackathons/${id}/cancel`, {
+      method: 'POST',
     }),
 }
 
@@ -494,6 +508,7 @@ export interface OrganizerHackathonSummary {
   event_end: string
   location_type: string
   is_published: boolean
+  status: string
   participant_count: number
   team_count: number
 }
@@ -583,6 +598,12 @@ export const organizerApi = {
   createHackathon: (data: CreateHackathonRequest) =>
     fetchApi<unknown>('/api/hackathons', {
       method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  updateHackathon: (id: string, data: Partial<CreateHackathonRequest>) =>
+    fetchApi<unknown>(`/api/hackathons/${id}`, {
+      method: 'PUT',
       body: JSON.stringify(data),
     }),
 }
@@ -756,6 +777,170 @@ export const ratingApi = {
     fetchApi<PublicRatingsResponse>(`/api/hackathons/${hackathonId}/ratings/public`, {
       method: 'GET',
     }),
+}
+
+// Report types
+export interface CreateReportRequest {
+  target_type: 'hackathon' | 'organizer' | 'team' | 'user'
+  target_id: string
+  reason: string
+  description?: string
+}
+
+export interface Report {
+  id: string
+  targetType: string
+  targetName: string
+  reason: string
+  description?: string
+  status: 'open' | 'resolved' | 'closed'
+  createdAt: string
+  resolvedAt?: string
+}
+
+// Admin types
+export interface DashboardStats {
+  pending_hackathons_count: number
+  unverified_organizers_count: number
+  open_reports_count: number
+}
+
+export interface PendingHackathon {
+  id: string
+  title: string
+  organizer: { id: string; name: string }
+  created_at: string
+  description?: string
+}
+
+export interface UnverifiedOrganizer {
+  id: string
+  name: string
+  user_id: string
+  user_name: string
+  email: string
+  description?: string
+  created_at: string
+}
+
+export interface AdminReport {
+  id: string
+  target_type: string
+  target_name: string
+  reason: string
+  status: 'open' | 'resolved' | 'closed'
+  created_at: string
+  reporter_name: string
+}
+
+export interface ReportDetail extends AdminReport {
+  description?: string
+  reporter: { id: string; name: string; email: string }
+  target_id: string
+  resolved_by?: { id: string; name: string }
+  resolved_at?: string
+  resolution_note?: string
+}
+
+export interface AdminUser {
+  id: string
+  email: string
+  name: string
+  is_staff: boolean
+  is_superuser: boolean
+  created_at: string
+}
+
+// Report API
+export const reportApi = {
+  create: (data: CreateReportRequest) =>
+    fetchApi<Report>('/api/reports', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  getMyReports: () =>
+    fetchApi<Report[]>('/api/reports/my', {
+      method: 'GET',
+    }),
+}
+
+// Admin API - secret hash from env
+const ADMIN_SECRET = ((import.meta as unknown) as { env?: { VITE_ADMIN_SECRET?: string } }).env?.VITE_ADMIN_SECRET || '9f2c7b6e5a1d4c8fbbd2a0c3e7f1a6d9'
+
+export const adminApi = {
+  // Dashboard
+  getDashboardStats: () =>
+    fetchApi<DashboardStats>(`/api/admin/${ADMIN_SECRET}/dashboard`, {
+      method: 'GET',
+    }),
+
+  // Hackathon moderation
+  getPendingHackathons: () =>
+    fetchApi<{ hackathons: PendingHackathon[]; total: number }>(
+      `/api/admin/${ADMIN_SECRET}/hackathons/pending`,
+      { method: 'GET' }
+    ),
+  approveHackathon: (id: string) =>
+    fetchApi<null>(`/api/admin/${ADMIN_SECRET}/hackathons/${id}/approve`, {
+      method: 'POST',
+    }),
+  rejectHackathon: (id: string, reason?: string) =>
+    fetchApi<null>(`/api/admin/${ADMIN_SECRET}/hackathons/${id}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }),
+
+  // Organizer verification
+  getUnverifiedOrganizers: () =>
+    fetchApi<{ organizers: UnverifiedOrganizer[]; total: number }>(
+      `/api/admin/${ADMIN_SECRET}/organizers/unverified`,
+      { method: 'GET' }
+    ),
+  verifyOrganizer: (id: string) =>
+    fetchApi<null>(`/api/admin/${ADMIN_SECRET}/organizers/${id}/verify`, {
+      method: 'POST',
+    }),
+
+  // Reports management
+  getReports: (status?: 'open' | 'resolved' | 'closed') =>
+    fetchApi<{ reports: AdminReport[]; total: number }>(
+      `/api/admin/${ADMIN_SECRET}/reports${status ? `?status=${status}` : ''}`,
+      { method: 'GET' }
+    ),
+  getReportDetail: (id: string) =>
+    fetchApi<ReportDetail>(`/api/admin/${ADMIN_SECRET}/reports/${id}`, {
+      method: 'GET',
+    }),
+  resolveReport: (id: string, resolutionNote: string) =>
+    fetchApi<null>(`/api/admin/${ADMIN_SECRET}/reports/${id}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify({ resolution_note: resolutionNote }),
+    }),
+  closeReport: (id: string) =>
+    fetchApi<null>(`/api/admin/${ADMIN_SECRET}/reports/${id}/close`, {
+      method: 'POST',
+    }),
+
+  // User management (superuser only)
+  listUsers: () =>
+    fetchApi<AdminUser[]>(`/api/admin/${ADMIN_SECRET}/users`, {
+      method: 'GET',
+    }),
+  toggleUserStaff: (id: string) =>
+    fetchApi<null>(`/api/admin/${ADMIN_SECRET}/users/${id}/toggle-staff`, {
+      method: 'POST',
+    }),
+}
+
+export interface MyHackathonWithStatus {
+  id: string
+  title: string
+  bannerUrl?: string
+  status: 'pending' | 'approved' | 'rejected'
+  isPublished: boolean
+  createdAt: string
+  eventStart: string
+  eventEnd: string
 }
 
 export { fetchApi, fetchOptional }

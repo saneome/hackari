@@ -16,6 +16,8 @@ pub struct Claims {
     pub exp: usize,
     pub iat: usize,
     pub token_type: String,
+    pub is_staff: bool,
+    pub is_superuser: bool,
 }
 
 pub fn hash_password(password: &str) -> Result<String, AppError> {
@@ -38,7 +40,7 @@ pub fn verify_password(password: &str, hash: &str) -> Result<bool, AppError> {
         .is_ok())
 }
 
-pub fn generate_access_token(user_id: Uuid, email: &str) -> Result<String, AppError> {
+pub fn generate_access_token(user_id: Uuid, email: &str, is_staff: bool, is_superuser: bool) -> Result<String, AppError> {
     let secret = std::env::var("JWT_SECRET")
         .map_err(|_| AppError::Internal("JWT_SECRET not set".to_string()))?;
 
@@ -51,6 +53,8 @@ pub fn generate_access_token(user_id: Uuid, email: &str) -> Result<String, AppEr
         exp: exp.timestamp() as usize,
         iat: now.timestamp() as usize,
         token_type: "access".to_string(),
+        is_staff,
+        is_superuser,
     };
 
     encode(
@@ -61,7 +65,7 @@ pub fn generate_access_token(user_id: Uuid, email: &str) -> Result<String, AppEr
     .map_err(|e| AppError::Internal(format!("Failed to encode token: {}", e)))
 }
 
-pub fn generate_refresh_token(user_id: Uuid, email: &str) -> Result<String, AppError> {
+pub fn generate_refresh_token(user_id: Uuid, email: &str, is_staff: bool, is_superuser: bool) -> Result<String, AppError> {
     let secret = std::env::var("JWT_SECRET")
         .map_err(|_| AppError::Internal("JWT_SECRET not set".to_string()))?;
 
@@ -74,6 +78,8 @@ pub fn generate_refresh_token(user_id: Uuid, email: &str) -> Result<String, AppE
         exp: exp.timestamp() as usize,
         iat: now.timestamp() as usize,
         token_type: "refresh".to_string(),
+        is_staff,
+        is_superuser,
     };
 
     encode(

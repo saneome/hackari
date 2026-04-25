@@ -44,7 +44,7 @@
             </div>
           </div>
           <div class="stat-card">
-            <div class="stat-icon draft">
+            <div class="stat-icon pending">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <circle cx="12" cy="12" r="10"/>
                 <line x1="12" y1="8" x2="12" y2="12"/>
@@ -52,12 +52,12 @@
               </svg>
             </div>
             <div class="stat-info">
-              <span class="stat-value">{{ upcomingCount }}</span>
-              <span class="stat-label">Предстоящих</span>
+              <span class="stat-value">{{ pendingCount }}</span>
+              <span class="stat-label">На модерации</span>
             </div>
           </div>
           <div class="stat-card">
-            <div class="stat-icon participants">
+            <div class="stat-icon approved">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
                 <circle cx="9" cy="7" r="4"/>
@@ -66,8 +66,8 @@
               </svg>
             </div>
             <div class="stat-info">
-              <span class="stat-value">{{ totalParticipants }}</span>
-              <span class="stat-label">Всего участников</span>
+              <span class="stat-value">{{ approvedCount }}</span>
+              <span class="stat-label">Одобрено</span>
             </div>
           </div>
         </div>
@@ -111,9 +111,9 @@
                 <div v-else class="hackathon-placeholder">H</div>
                 <span
                   class="hackathon-status"
-                  :class="hackathon.is_published ? 'published' : 'draft'"
+                  :class="getStatusClass(hackathon.status || 'pending')"
                 >
-                  {{ hackathon.is_published ? 'Опубликован' : 'Черновик' }}
+                  {{ getStatusText(hackathon.status || 'pending') }}
                 </span>
               </div>
               <div class="hackathon-content">
@@ -147,6 +147,17 @@
                 </div>
               </div>
               <div class="hackathon-actions">
+          <router-link
+            v-if="hackathon.status === 'rejected'"
+            :to="`/hackathons/${hackathon.id}/edit`"
+            class="btn btn-icon edit"
+            title="Редактировать"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+            </svg>
+          </router-link>
             <router-link
               :to="`/hackathons/${hackathon.id}`"
               class="btn btn-icon"
@@ -184,6 +195,33 @@
                 <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
               </svg>
             </router-link>
+            <button
+              v-if="canCancel(hackathon)"
+              type="button"
+              class="btn btn-icon cancel"
+              title="Отменить хакатон"
+              @click="onCancel(hackathon)"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+              </svg>
+            </button>
+            <button
+              v-if="canDelete(hackathon)"
+              type="button"
+              class="btn btn-icon delete"
+              title="Удалить хакатон"
+              @click="onDelete(hackathon)"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/>
+                <path d="M10 11v6"/>
+                <path d="M14 11v6"/>
+                <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/>
+              </svg>
+            </button>
           </div>
             </div>
           </div>
@@ -196,7 +234,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import gsap from 'gsap'
-import { organizerApi, type OrganizerHackathonSummary } from '@/services/api'
+import { organizerApi, hackathonApi, type OrganizerHackathonSummary } from '@/services/api'
+import { useModal } from '@/composables/useModal'
+
+const { alert, confirm } = useModal()
 
 const header = ref<HTMLElement | null>(null)
 const stats = ref<HTMLElement | null>(null)
@@ -205,9 +246,12 @@ const content = ref<HTMLElement | null>(null)
 const hackathons = ref<OrganizerHackathonSummary[]>([])
 const isLoading = ref(true)
 
-const upcomingCount = computed(() => {
-  const now = new Date()
-  return hackathons.value.filter(h => new Date(h.event_start) > now).length
+const pendingCount = computed(() => {
+  return hackathons.value.filter(h => (h.status || 'pending') === 'pending').length
+})
+
+const approvedCount = computed(() => {
+  return hackathons.value.filter(h => h.status === 'approved').length
 })
 
 const totalParticipants = computed(() => {
@@ -221,6 +265,79 @@ const formatDate = (dateString: string) => {
 
 const isHackathonEnded = (hackathon: OrganizerHackathonSummary) => {
   return new Date(hackathon.event_end) < new Date()
+}
+
+const getStatusClass = (status: string) => {
+  switch (status) {
+    case 'approved': return 'approved'
+    case 'rejected': return 'rejected'
+    case 'cancelled': return 'cancelled'
+    case 'pending':
+    default: return 'pending'
+  }
+}
+
+const getStatusText = (status: string) => {
+  switch (status) {
+    case 'approved': return 'Одобрен'
+    case 'rejected': return 'Отклонен'
+    case 'cancelled': return 'Отменён'
+    case 'pending':
+    default: return 'На модерации'
+  }
+}
+
+const canDelete = (h: OrganizerHackathonSummary) => {
+  const status = h.status || 'pending'
+  if (status === 'pending' || status === 'rejected') return true
+  if (status === 'approved' && (h.team_count || 0) === 0) return true
+  return false
+}
+
+const canCancel = (h: OrganizerHackathonSummary) => {
+  return (h.status || 'pending') === 'approved' && (h.team_count || 0) > 0
+}
+
+const onDelete = async (h: OrganizerHackathonSummary) => {
+  const ok = await confirm({
+    title: 'Удалить хакатон',
+    message: `Вы уверены, что хотите удалить хакатон «${h.title}»? Это действие необратимо.`,
+    type: 'error',
+    confirmText: 'Удалить',
+    cancelText: 'Отмена',
+  })
+  if (!ok) return
+  try {
+    await hackathonApi.delete(h.id)
+    hackathons.value = hackathons.value.filter(x => x.id !== h.id)
+  } catch (e: any) {
+    await alert({
+      title: 'Не удалось удалить',
+      message: e?.message || 'Не удалось удалить хакатон',
+      type: 'error',
+    })
+  }
+}
+
+const onCancel = async (h: OrganizerHackathonSummary) => {
+  const ok = await confirm({
+    title: 'Отменить хакатон',
+    message: `Отменить хакатон «${h.title}»? Участники получат уведомление, регистрация закроется.`,
+    type: 'warning',
+    confirmText: 'Отменить хакатон',
+    cancelText: 'Назад',
+  })
+  if (!ok) return
+  try {
+    await hackathonApi.cancel(h.id)
+    h.status = 'cancelled'
+  } catch (e: any) {
+    await alert({
+      title: 'Не удалось отменить',
+      message: e?.message || 'Не удалось отменить хакатон',
+      type: 'error',
+    })
+  }
 }
 
 onMounted(async () => {
@@ -432,14 +549,14 @@ onMounted(async () => {
       color: $color-accent;
     }
 
-    &.draft {
-      background: rgba($color-secondary, 0.1);
-      color: $color-secondary;
-    }
-
-    &.participants {
+    &.pending {
       background: rgba($color-text-dim, 0.1);
       color: $color-text-dim;
+    }
+
+    &.approved {
+      background: rgba(255, 255, 255, 0.1);
+      color: $color-text;
     }
   }
 
@@ -611,6 +728,16 @@ onMounted(async () => {
     background: rgba($color-secondary, 0.9);
     color: white;
   }
+
+  &.pending, &.approved, &.rejected, &.cancelled {
+    background: rgba(255, 255, 255, 0.1);
+    color: $color-text;
+  }
+
+  &.cancelled {
+    background: rgba(220, 80, 80, 0.85);
+    color: white;
+  }
 }
 
 .hackathon-content {
@@ -660,6 +787,20 @@ onMounted(async () => {
     &:hover {
       background: $color-accent;
       color: $color-bg;
+    }
+  }
+
+  .btn-icon.delete,
+  .btn-icon.cancel {
+    color: #d36a6a;
+    border-color: rgba(211, 106, 106, 0.4);
+    background: transparent;
+    cursor: pointer;
+
+    &:hover {
+      background: rgba(211, 106, 106, 0.1);
+      border-color: #d36a6a;
+      color: #d36a6a;
     }
   }
 }

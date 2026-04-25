@@ -18,6 +18,7 @@ pub struct HackathonResponse {
     pub max_participants: Option<i32>,
     pub organizer: Option<OrganizerResponse>,
     pub is_published: bool,
+    pub status: String,
     pub tracks: Vec<TrackResponse>,
     pub deadlines: Vec<DeadlineResponse>,
     pub participant_count: i64,
@@ -126,6 +127,7 @@ pub struct UpdateHackathonRequest {
     pub event_end: Option<DateTime<chrono::Utc>>,
     pub max_participants: Option<i32>,
     pub is_published: Option<bool>,
+    pub banner_url: Option<String>,
     // Новые поля
     pub contact_email: Option<String>,
     pub website_url: Option<String>,
@@ -165,4 +167,16 @@ pub struct HackathonSummary {
     pub event_end: String,
     pub participant_count: i64,
     pub team_count: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MyHackathonSummary {
+    pub id: String,
+    pub title: String,
+    pub banner_url: Option<String>,
+    pub status: String, // 'pending', 'approved', 'rejected'
+    pub is_published: bool,
+    pub created_at: String,
+    pub event_start: String,
+    pub event_end: String,
 }
