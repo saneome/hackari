@@ -47,14 +47,6 @@ const animateModalOpen = () => {
   const modal = overlay.querySelector('.modal-dialog')
   if (!modal) return
 
-  // Block body scroll
-  const scrollY = window.scrollY
-  document.body.style.position = 'fixed'
-  document.body.style.top = `-${scrollY}px`
-  document.body.style.left = '0'
-  document.body.style.right = '0'
-  document.body.style.overflow = 'hidden'
-
   // Animate overlay
   gsap.fromTo(overlay,
     { opacity: 0 },
@@ -71,7 +63,6 @@ const animateModalOpen = () => {
 const animateModalClose = (callback?: () => void) => {
   const overlay = document.querySelector('.modal-dialog-overlay')
   if (!overlay) {
-    unlockBodyScroll()
     callback?.()
     return
   }
@@ -80,7 +71,6 @@ const animateModalClose = (callback?: () => void) => {
 
   const tl = gsap.timeline({
     onComplete: () => {
-      unlockBodyScroll()
       callback?.()
     }
   })
@@ -89,16 +79,6 @@ const animateModalClose = (callback?: () => void) => {
     tl.to(modal, { y: 20, opacity: 0, scale: 0.98, duration: 0.2, ease: 'power2.in' })
   }
   tl.to(overlay, { opacity: 0, duration: 0.15, ease: 'power2.in' }, '<')
-}
-
-const unlockBodyScroll = () => {
-  const scrollY = Math.abs(parseInt(document.body.style.top || '0'))
-  document.body.style.position = ''
-  document.body.style.top = ''
-  document.body.style.left = ''
-  document.body.style.right = ''
-  document.body.style.overflow = ''
-  window.scrollTo(0, scrollY)
 }
 
 watch(() => props.state.isOpen, (newVal) => {

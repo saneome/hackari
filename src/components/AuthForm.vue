@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { gsap } from 'gsap'
 import BaseButton from './ui/BaseButton.vue'
 import BaseInput from './ui/BaseInput.vue'
+import ConsentCheckboxes from './ConsentCheckboxes.vue'
 import { useAuth } from '@/composables/useAuth'
 import { authApi, organizerApi, userApi } from '@/services/api'
 
@@ -31,6 +32,8 @@ const formData = ref({
   confirmPassword: '',
   name: '',
   newPassword: '',
+  termsAccepted: false,
+  privacyAccepted: false,
 })
 
 const errors = ref<Record<string, string>>({})
@@ -206,6 +209,13 @@ const allFieldsFilled = computed(() => {
   })
 })
 
+const canSubmit = computed(() => {
+  if (mode.value === 'register') {
+    return allFieldsFilled.value && formData.value.termsAccepted && formData.value.privacyAccepted
+  }
+  return allFieldsFilled.value
+})
+
 const validateCurrentField = () => {
   const field = currentField.value
   const value = formData.value[field]
@@ -308,7 +318,7 @@ const handleKeydown = (e: KeyboardEvent) => {
 }
 
 const handleSubmit = async () => {
-  if (!allFieldsFilled.value && mode.value !== 'verify-pending') return
+  if (!canSubmit.value && mode.value !== 'verify-pending') return
 
   isLoading.value = true
   errors.value = {}
@@ -325,7 +335,9 @@ const handleSubmit = async () => {
       const regResult = await authApi.register({
         email: formData.value.email,
         password: formData.value.password,
-        name: formData.value.name
+        name: formData.value.name,
+        terms_accepted: formData.value.termsAccepted,
+        privacy_accepted: formData.value.privacyAccepted,
       })
       isLoading.value = false
 
@@ -407,7 +419,7 @@ const handleSubmit = async () => {
 }
 
 const resetForm = () => {
-  formData.value = { email: '', password: '', confirmPassword: '', name: '', newPassword: '' }
+  formData.value = { email: '', password: '', confirmPassword: '', name: '', newPassword: '', termsAccepted: false, privacyAccepted: false }
   currentFieldIndex.value = 0
   showSubmitButton.value = false
   errors.value = {}
@@ -496,6 +508,7 @@ watch(() => mode.value, (newMode) => {
         </div>
         <p class="verify-text">На {{ formData.email }} отправлена ссылка для подтверждения</p>
         <p class="verify-subtext">Нажмите на ссылку в письме, чтобы активировать аккаунт</p>
+        <p class="verify-hint">Письмо придёт от <strong>didorenkoalexander@yandex.ru</strong>. Если не видите его во «Входящих» — проверьте папку «Спам».</p>
 
         <div class="verify-actions">
           <BaseButton
@@ -530,6 +543,7 @@ watch(() => mode.value, (newMode) => {
           <span v-else-if="mode === 'register'">аккаунт создан</span>
           <span v-else>вход выполнен</span>
         </p>
+        <p v-if="mode === 'reset-email'" class="verify-hint">Письмо придёт от <strong>didorenkoalexander@yandex.ru</strong>. Если не видите его во «Входящих» — проверьте папку «Спам».</p>
       </div>
 
       <!-- Form -->
@@ -588,7 +602,7 @@ watch(() => mode.value, (newMode) => {
 
           <div class="summary-list">
             <div
-              v-for="field in modeConfig.fields"
+              v-for="field in modeConfig.fields.filter(f => f !== 'password' && f !== 'confirmPassword')"
               :key="field"
               class="summary-item"
             >
@@ -598,6 +612,13 @@ watch(() => mode.value, (newMode) => {
               </span>
             </div>
           </div>
+
+          <!-- Consent Checkboxes (register only) -->
+          <ConsentCheckboxes
+            v-if="mode === 'register'"
+            v-model:terms-accepted="formData.termsAccepted"
+            v-model:privacy-accepted="formData.privacyAccepted"
+          />
 
           <div class="submit-actions">
             <BaseButton
@@ -617,6 +638,7 @@ watch(() => mode.value, (newMode) => {
               variant="primary"
               size="md"
               :loading="isLoading"
+              :disabled="!canSubmit"
               @click="handleSubmit"
             >
               {{ modeConfig.submitText }}
@@ -843,6 +865,22 @@ watch(() => mode.value, (newMode) => {
   font-size: 14px;
   color: $color-text-dim;
   max-width: 300px;
+}
+
+.verify-hint {
+  font-size: 12px;
+  color: $color-text-muted;
+  max-width: 360px;
+  line-height: 1.5;
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+
+  strong {
+    color: $color-text-dim;
+    font-weight: 500;
+  }
 }
 
 .verify-actions {

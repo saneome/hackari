@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useProfile } from '@/composables/useProfile'
 import { useAuth } from '@/composables/useAuth'
 import { useRouter } from 'vue-router'
+import { useScrollLock } from '@/composables/useScrollLock'
 import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import {
@@ -17,7 +18,9 @@ import {
   Mail,
   Calendar,
   Code2,
-  Sparkles
+  Sparkles,
+  Trash2,
+  AlertTriangle
 } from 'lucide-vue-next'
 import CustomSelect from '@/components/CustomSelect.vue'
 
@@ -42,10 +45,14 @@ const {
   updateProfile,
   addSkill,
   removeSkill,
+  deleteAccount,
 } = useProfile()
 
 const isEditing = ref(false)
 const isSkillModalOpen = ref(false)
+const isDeleteModalOpen = ref(false)
+const deleteConfirmEmail = ref('')
+const isDeleting = ref(false)
 const selectedSkillId = ref('')
 const selectedLevel = ref(3)
 const formData = ref({
@@ -208,6 +215,31 @@ const getAvailableSkillsOptions = () => {
 const availableSkillsSelectOptions = computed(() =>
   getAvailableSkillsOptions().map(s => ({ value: s.id, label: s.name }))
 )
+
+const openDeleteModal = () => {
+  deleteConfirmEmail.value = ''
+  isDeleteModalOpen.value = true
+}
+
+const closeDeleteModal = () => {
+  isDeleteModalOpen.value = false
+  deleteConfirmEmail.value = ''
+  isDeleting.value = false
+}
+
+const handleDeleteAccount = async () => {
+  if (deleteConfirmEmail.value !== profile.value?.email) return
+  isDeleting.value = true
+  const success = await deleteAccount()
+  if (success) {
+    closeDeleteModal()
+    router.push('/')
+  }
+  isDeleting.value = false
+}
+
+useScrollLock(isDeleteModalOpen)
+useScrollLock(isSkillModalOpen)
 </script>
 
 <template>
@@ -445,6 +477,31 @@ const availableSkillsSelectOptions = computed(() =>
               <div class="card-highlight" />
               <div class="card-border" />
             </article>
+
+            <!-- Delete Account Card -->
+            <article v-if="!isEditing" class="bento-card size-small danger-card">
+              <div class="card-content">
+                <div class="card-header">
+                  <div class="card-icon danger">
+                    <Trash2 :size="24" />
+                  </div>
+                  <span class="mono card-label">АККАУНТ</span>
+                </div>
+                <div class="card-body">
+                  <p class="text-muted" style="font-size: 13px;">
+                    Удаление аккаунта необратимо. Ваши персональные данные будут уничтожены в течение 30 дней, за исключением сведений, подлежащих хранению по законодательству (до 5 лет).
+                  </p>
+                </div>
+                <div class="card-actions">
+                  <button class="action-btn danger-btn" @click="openDeleteModal">
+                    <Trash2 :size="16" />
+                    <span class="mono">удалить аккаунт</span>
+                  </button>
+                </div>
+              </div>
+              <div class="card-highlight" />
+              <div class="card-border" />
+            </article>
           </div>
         </div>
       </section>
@@ -469,6 +526,7 @@ const availableSkillsSelectOptions = computed(() =>
               v-model="selectedSkillId"
               :options="availableSkillsSelectOptions"
               placeholder="Выберите навык"
+              :z-index="210"
             />
           </div>
           <div class="form-group">
@@ -490,6 +548,59 @@ const availableSkillsSelectOptions = computed(() =>
           <button class="btn btn-secondary" @click="closeSkillModal">отмена</button>
           <button class="btn btn-primary" :disabled="!selectedSkillId" @click="handleAddSkill">
             добавить
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Delete Account Modal -->
+    <div v-if="isDeleteModalOpen" class="modal-overlay" @click.self="closeDeleteModal">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title-wrapper">
+            <AlertTriangle :size="20" class="modal-icon" style="color: #FF5722;" />
+            <h3 class="modal-title">удаление аккаунта</h3>
+          </div>
+          <button class="modal-close" @click="closeDeleteModal">
+            <X :size="20" />
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="delete-notice">
+            <p class="delete-notice-text">
+              Вы собираетесь удалить свой аккаунт. Это действие <strong>необратимо</strong>.
+            </p>
+            <ul class="delete-legal-list">
+              <li>Ваши персональные данные будут уничтожены в течение <strong>30 дней</strong> с момента удаления.</li>
+              <li>Сведения, подлежащие хранению по законодательству (налоговая отчётность, бухгалтерский учёт), сохраняются до <strong>5 лет</strong> в соответствии с НК РФ и 402-ФЗ.</li>
+              <li>После удаления вы потеряете доступ ко всем данным и функциям платформы.</li>
+              <li>Это действие является отзывом согласия на обработку персональных данных (152-ФЗ, статья 9).</li>
+            </ul>
+          </div>
+          <div v-if="errors.general" class="error-message">{{ errors.general }}</div>
+          <div class="form-group">
+            <label class="mono">
+              Для подтверждения введите свой email: <strong>{{ profile.email }}</strong>
+            </label>
+            <input
+              v-model="deleteConfirmEmail"
+              type="email"
+              placeholder="ваш email"
+              class="delete-confirm-input"
+              @keyup.enter="handleDeleteAccount"
+            />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" @click="closeDeleteModal">отмена</button>
+          <button
+            class="btn btn-danger"
+            :disabled="deleteConfirmEmail !== profile.email || isDeleting"
+            @click="handleDeleteAccount"
+          >
+            <Loader2 v-if="isDeleting" class="spin" :size="16" />
+            <Trash2 v-else :size="16" />
+            {{ isDeleting ? 'удаление...' : 'удалить навсегда' }}
           </button>
         </div>
       </div>
@@ -1230,6 +1341,9 @@ const availableSkillsSelectOptions = computed(() =>
   border-radius: 16px;
   width: 100%;
   max-width: 420px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   animation: modal-in 0.3s ease;
   backdrop-filter: blur(20px);
@@ -1290,10 +1404,11 @@ const availableSkillsSelectOptions = computed(() =>
 }
 
 .modal-body {
-  padding: 24px;
+  padding: 20px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
+  overflow-y: auto;
 }
 
 .level-display {
@@ -1353,6 +1468,87 @@ const availableSkillsSelectOptions = computed(() =>
 
   .btn {
     flex: 1;
+    padding: 8px 16px;
+  }
+}
+
+// Danger styles
+.danger-card {
+  .card-icon.danger {
+    background: rgba(#FF5722, 0.1);
+    color: #FF5722;
+  }
+}
+
+.danger-btn {
+  color: #FF5722;
+  border-color: rgba(#FF5722, 0.3);
+
+  &:hover {
+    background: rgba(#FF5722, 0.1);
+    border-color: #FF5722;
+  }
+}
+
+.btn-danger {
+  background: #FF5722;
+  border-color: #FF5722;
+  color: #fff;
+
+  &:hover:not(:disabled) {
+    background: darken(#FF5722, 10%);
+    border-color: darken(#FF5722, 10%);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.delete-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.delete-notice-text {
+  font-size: 14px;
+  line-height: 1.5;
+  color: $color-text;
+}
+
+.delete-legal-list {
+  list-style: disc;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  li {
+    font-size: 13px;
+    line-height: 1.35;
+    color: $color-text-dim;
+
+    strong {
+      color: $color-text;
+    }
+  }
+}
+
+.delete-confirm-input {
+  width: 100%;
+  padding: 10px 14px;
+  background: rgba($color-bg, 0.5);
+  border: 1px solid $color-border;
+  border-radius: 10px;
+  color: $color-text;
+  font-family: $font-body;
+  font-size: 14px;
+
+  &:focus {
+    outline: none;
+    border-color: #FF5722;
   }
 }
 </style>

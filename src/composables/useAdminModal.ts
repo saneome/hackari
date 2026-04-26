@@ -1,5 +1,6 @@
-import { reactive, nextTick } from 'vue'
+import { reactive, nextTick, watch } from 'vue'
 import { gsap } from 'gsap'
+import { lockBodyScroll, unlockBodyScroll } from './useScrollLock'
 
 export interface AdminModalOptions {
   title: string
@@ -100,5 +101,13 @@ export const useAdminModal = () => {
     confirm,
   }
 }
+
+watch(() => modalState.isOpen, (isOpen: boolean) => {
+  if (isOpen) {
+    lockBodyScroll()
+  } else {
+    unlockBodyScroll()
+  }
+})
 
 export { modalState }

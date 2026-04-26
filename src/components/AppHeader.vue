@@ -16,6 +16,7 @@ const navItems = [
   { label: 'хакатоны', href: '/hackathons', isRoute: true },
   { label: 'рейтинг', href: '/ratings', isRoute: true },
   { label: 'организаторам', href: '/organizers', isRoute: true },
+  { label: 'документы', href: '/legal', isRoute: true },
 ]
 
 const profileNavItem = { label: 'профиль', href: '/profile', isRoute: true }
@@ -136,14 +137,6 @@ const scrollToSection = (href: string) => {
               {{ item.label }}
             </button>
           </template>
-          <router-link
-            v-if="isAuthenticated"
-            :to="profileNavItem.href"
-            class="mobile-nav-link"
-            @click="isMobileMenuOpen = false"
-          >
-            {{ profileNavItem.label }}
-          </router-link>
         </nav>
         <!-- Mobile Auth -->
         <template v-if="isAuthenticated && user">

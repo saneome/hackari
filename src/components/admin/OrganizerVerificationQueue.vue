@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useAdminModal } from '@/composables/useAdminModal'
+import { useScrollLock } from '@/composables/useScrollLock'
 import { adminApi } from '@/services/api'
 import type { UnverifiedOrganizer } from '@/services/api'
 
@@ -22,6 +23,9 @@ const displayedOrganizers = computed(() =>
 )
 
 const pendingCount = computed(() => total.value || displayedOrganizers.value.length)
+
+const isOrganizerModalOpen = computed(() => !!selectedOrganizer.value)
+useScrollLock(isOrganizerModalOpen)
 
 const formatDate = (value: string) =>
   new Intl.DateTimeFormat('ru-RU', {

@@ -15,6 +15,8 @@ pub struct Model {
     pub github_url: Option<String>,
     pub telegram_username: Option<String>,
     pub is_verified: bool,
+    pub terms_accepted_at: Option<DateTimeWithTimeZone>,
+    pub privacy_accepted_at: Option<DateTimeWithTimeZone>,
     pub organizer_terms_accepted_at: Option<DateTimeWithTimeZone>,
     pub is_staff: bool,
     pub is_superuser: bool,

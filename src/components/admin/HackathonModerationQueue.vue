@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useScrollLock } from '@/composables/useScrollLock'
 import { adminApi } from '@/services/api'
 import type { PendingHackathon } from '@/services/api'
 
@@ -21,6 +22,9 @@ const displayedHackathons = computed(() =>
 )
 
 const pendingCount = computed(() => total.value || displayedHackathons.value.length)
+
+const isHackathonModalOpen = computed(() => !!selectedHackathon.value)
+useScrollLock(isHackathonModalOpen)
 
 const formatDate = (value: string) =>
   new Intl.DateTimeFormat('ru-RU', {

@@ -19,6 +19,14 @@ const ecosystemProducts = [
   { name: 'XaneoID', description: 'Единая авторизация', href: '#' },
 ]
 
+const legalLinks = [
+  { name: 'Пользовательское соглашение', to: '/legal/terms-of-service' },
+  { name: 'Политика конфиденциальности', to: '/legal/privacy-policy' },
+  { name: 'Согласие на обработку ПД', to: '/legal/personal-data-consent' },
+  { name: 'Cookie', to: '/legal/cookie-policy' },
+  { name: 'Договор для организаторов', to: '/legal/organizer-agreement' },
+]
+
 const socialLinks = [
   { icon: Github, href: '#', label: 'GitHub' },
   { icon: Twitter, href: '#', label: 'Twitter' },
@@ -143,6 +151,17 @@ onMounted(() => {
           </div>
 
           <div class="links-group">
+            <h3 class="group-title mono">ПРАВОВЫЕ ДОКУМЕНТЫ</h3>
+            <ul class="links-list links-list--legal">
+              <li v-for="link in legalLinks" :key="link.to">
+                <router-link :to="link.to" class="legal-link">
+                  {{ link.name }}
+                </router-link>
+              </li>
+            </ul>
+          </div>
+
+          <div class="links-group">
             <h3 class="group-title mono">СВЯЗЬ</h3>
             <ul class="links-list">
               <li>
@@ -218,9 +237,9 @@ onMounted(() => {
 
 // Matrix Easter Egg Overlay
 .matrix-overlay {
-  position: fixed;
+  position: absolute;
   inset: 0;
-  z-index: 100;
+  z-index: 1;
   background: $color-bg;
 }
 
@@ -328,12 +347,34 @@ onMounted(() => {
 // Links
 .footer-links {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 48px;
+
+  @media (max-width: 900px) {
+    grid-template-columns: repeat(2, 1fr);
+  }
 
   @media (max-width: 640px) {
     grid-template-columns: 1fr;
+    gap: 32px;
   }
+}
+
+.legal-link {
+  color: $color-text-dim;
+  font-size: 13px;
+  text-decoration: none;
+  line-height: 1.5;
+  display: inline-block;
+  transition: color 0.2s ease;
+
+  &:hover {
+    color: $color-accent;
+  }
+}
+
+.links-list--legal {
+  gap: 8px;
 }
 
 .links-group {

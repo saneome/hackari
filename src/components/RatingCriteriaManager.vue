@@ -256,19 +256,16 @@ async function addCriteria() {
 
   saving.value = true
   error.value = null
-  try {
-    const res = await ratingApi.createCriteria(props.hackathonId, newForm.value)
-    if (res.data) {
-      criteria.value.push(res.data)
-      showAddForm.value = false
-      newForm.value = { name: '', description: '', weight: 0.2, max_score: 10 }
-      emit('criteria-updated')
-    }
-  } catch (e: any) {
-    error.value = 'Ошибка добавления критерия'
-  } finally {
-    saving.value = false
+  const res = await ratingApi.createCriteria(props.hackathonId, newForm.value)
+  if (res.error) {
+    error.value = res.error
+  } else if (res.data) {
+    criteria.value.push(res.data)
+    showAddForm.value = false
+    newForm.value = { name: '', description: '', weight: 0.2, max_score: 10 }
+    emit('criteria-updated')
   }
+  saving.value = false
 }
 
 function startEdit(criterion: RatingCriteria) {
@@ -290,21 +287,18 @@ async function saveEdit(criteriaId: string) {
   if (!canManage.value) return
   saving.value = true
   error.value = null
-  try {
-    const res = await ratingApi.updateCriteria(props.hackathonId, criteriaId, editForm.value)
-    if (res.data) {
-      const index = criteria.value.findIndex(c => c.id === criteriaId)
-      if (index !== -1) {
-        criteria.value[index] = res.data
-      }
-      editingId.value = null
-      emit('criteria-updated')
+  const res = await ratingApi.updateCriteria(props.hackathonId, criteriaId, editForm.value)
+  if (res.error) {
+    error.value = res.error
+  } else if (res.data) {
+    const index = criteria.value.findIndex(c => c.id === criteriaId)
+    if (index !== -1) {
+      criteria.value[index] = res.data
     }
-  } catch (e: any) {
-    error.value = 'Ошибка обновления критерия'
-  } finally {
-    saving.value = false
+    editingId.value = null
+    emit('criteria-updated')
   }
+  saving.value = false
 }
 
 async function deleteCriteria(criteriaId: string) {
@@ -319,13 +313,13 @@ async function deleteCriteria(criteriaId: string) {
   if (!ok) return
 
   error.value = null
-  try {
-    await ratingApi.deleteCriteria(props.hackathonId, criteriaId)
-    criteria.value = criteria.value.filter(c => c.id !== criteriaId)
-    emit('criteria-updated')
-  } catch (e: any) {
-    error.value = 'Ошибка удаления критерия'
+  const res = await ratingApi.deleteCriteria(props.hackathonId, criteriaId)
+  if (res.error) {
+    error.value = res.error
+    return
   }
+  criteria.value = criteria.value.filter(c => c.id !== criteriaId)
+  emit('criteria-updated')
 }
 
 // Drag and drop handlers

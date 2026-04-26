@@ -862,6 +862,7 @@ onMounted(() => {
   gap: 0;
   max-width: 800px;
   margin: 0 auto;
+  overflow: hidden;
 }
 
 .step-item {

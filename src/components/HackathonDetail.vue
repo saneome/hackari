@@ -7,6 +7,7 @@ import { Calendar, MapPin, Users, Trophy, Mail, Globe, ChevronRight, Plus, UserP
 import { hackathonApi, organizerApi, fetchApi, userApi, teamApi } from '@/services/api'
 import { useAuth } from '@/composables/useAuth'
 import { useModal } from '@/composables/useModal'
+import { useScrollLock } from '@/composables/useScrollLock'
 import CustomSelect from '@/components/CustomSelect.vue'
 import ReportModal from '@/components/ReportModal.vue'
 import NotFoundPage from '@/components/NotFoundPage.vue'
@@ -58,6 +59,9 @@ const editTeamTrackId = ref('')
 const editTeamRepoUrl = ref('')
 const editTeamDemoUrl = ref('')
 const editTeamPresentationUrl = ref('')
+
+useScrollLock(showCreateTeamModal)
+useScrollLock(showTeamModal)
 
 // Computed
 const isOrganizer = computed(() => {
@@ -213,31 +217,28 @@ const createTeam = async () => {
   }
 
   isCreatingTeam.value = true
-  try {
-    const response = await fetchApi<{ id: string }>(`/api/teams`, {
-      method: 'POST',
-      body: JSON.stringify({
-        hackathon_id: props.hackathonId,
-        name: newTeamName.value,
-        description: newTeamDescription.value || undefined,
-        track_id: selectedTrackId.value || undefined
-      })
+  const response = await fetchApi<{ id: string }>(`/api/teams`, {
+    method: 'POST',
+    body: JSON.stringify({
+      hackathon_id: props.hackathonId,
+      name: newTeamName.value,
+      description: newTeamDescription.value || undefined,
+      track_id: selectedTrackId.value || undefined
     })
+  })
 
-    if (response.data) {
-      userTeam.value = { id: response.data.id, name: newTeamName.value, role: 'leader' }
-      await fetchTeams()
-      closeCreateTeamModalAnimated()
-    }
-  } catch (e: any) {
+  if (response.error) {
     await alert({
       title: 'Ошибка',
-      message: e?.error || 'Ошибка при создании команды',
+      message: response.error,
       type: 'error'
     })
-  } finally {
-    isCreatingTeam.value = false
+  } else if (response.data) {
+    userTeam.value = { id: response.data.id, name: newTeamName.value, role: 'leader' }
+    await fetchTeams()
+    closeCreateTeamModalAnimated()
   }
+  isCreatingTeam.value = false
 }
 
 const joinTeam = async (teamId: string) => {
@@ -252,25 +253,22 @@ const joinTeam = async (teamId: string) => {
   }
 
   isJoiningTeam.value = teamId
-  try {
-    const response = await fetchApi<{ id: string }>(`/api/teams/${teamId}/join`, {
-      method: 'POST',
-      body: JSON.stringify({})
-    })
+  const response = await fetchApi<{ id: string }>(`/api/teams/${teamId}/join`, {
+    method: 'POST',
+    body: JSON.stringify({})
+  })
 
-    if (response.data) {
-      await fetchUserTeam()
-      await fetchTeams()
-    }
-  } catch (e: any) {
+  if (response.error) {
     await alert({
       title: 'Ошибка',
-      message: e?.error || 'Ошибка при присоединении к команде',
+      message: response.error,
       type: 'error'
     })
-  } finally {
-    isJoiningTeam.value = null
+  } else if (response.data) {
+    await fetchUserTeam()
+    await fetchTeams()
   }
+  isJoiningTeam.value = null
 }
 
 const openTeamModal = async (teamId: string) => {
@@ -319,35 +317,32 @@ const saveTeamChanges = async () => {
   if (!selectedTeam.value) return
   isSavingTeam.value = true
 
-  try {
-    const response = await teamApi.update(selectedTeam.value.id, {
-      name: editTeamName.value,
-      description: editTeamDescription.value || undefined,
-      track_id: editTeamTrackId.value || undefined,
-      repo_url: editTeamRepoUrl.value || undefined,
-      demo_url: editTeamDemoUrl.value || undefined,
-      presentation_url: editTeamPresentationUrl.value || undefined,
-    })
+  const response = await teamApi.update(selectedTeam.value.id, {
+    name: editTeamName.value,
+    description: editTeamDescription.value || undefined,
+    track_id: editTeamTrackId.value || undefined,
+    repo_url: editTeamRepoUrl.value || undefined,
+    demo_url: editTeamDemoUrl.value || undefined,
+    presentation_url: editTeamPresentationUrl.value || undefined,
+  })
 
-    if (response.data) {
-      selectedTeam.value = response.data
-      isEditingTeam.value = false
-      // Refresh teams list
-      await fetchTeams()
-      // Update userTeam if it's the same team
-      if (userTeam.value?.id === selectedTeam.value.id) {
-        userTeam.value = { ...userTeam.value, name: response.data.name }
-      }
-    }
-  } catch (e: any) {
+  if (response.error) {
     await alert({
       title: 'Ошибка',
-      message: e?.error || 'Ошибка при сохранении',
+      message: response.error,
       type: 'error'
     })
-  } finally {
-    isSavingTeam.value = false
+  } else if (response.data) {
+    selectedTeam.value = response.data
+    isEditingTeam.value = false
+    // Refresh teams list
+    await fetchTeams()
+    // Update userTeam if it's the same team
+    if (userTeam.value?.id === selectedTeam.value.id) {
+      userTeam.value = { ...userTeam.value, name: response.data.name }
+    }
   }
+  isSavingTeam.value = false
 }
 
 const leaveTeam = async () => {
@@ -364,46 +359,41 @@ const leaveTeam = async () => {
   isLeavingTeam.value = true
   const leftTeamId = selectedTeam.value.id
 
-  try {
-    const response = await teamApi.leave(selectedTeam.value.id)
-    if (response.data?.success) {
-      // Close modal first
-      showTeamModal.value = false
-      selectedTeam.value = null
-      isEditingTeam.value = false
-
-      if (response.data.team_disbanded) {
-        // Remove team from list immediately
-        teams.value = teams.value.filter(t => t.id !== leftTeamId)
-        userTeam.value = null
-        await alert({
-          title: 'Команда расформирована',
-          message: 'Команда расформирована, так как вы были последним участником',
-          type: 'info'
-        })
-      } else if (response.data.new_leader) {
-        userTeam.value = null
-        await alert({
-          title: 'Успешно',
-          message: 'Вы покинули команду. Новый лидер назначен.',
-          type: 'success'
-        })
-      }
-
-      // Sync with server
-      await fetchTeams()
-    }
-  } catch (e: any) {
+  const response = await teamApi.leave(selectedTeam.value.id)
+  if (response.error) {
     await alert({
       title: 'Ошибка',
-      message: e?.error || 'Ошибка при выходе из команды',
+      message: response.error,
       type: 'error'
     })
-  } finally {
-    isLeavingTeam.value = false
-    // Ensure body scroll is unlocked
-    unlockBodyScroll()
+  } else if (response.data?.success) {
+    // Close modal first
+    showTeamModal.value = false
+    selectedTeam.value = null
+    isEditingTeam.value = false
+
+    if (response.data.team_disbanded) {
+      // Remove team from list immediately
+      teams.value = teams.value.filter(t => t.id !== leftTeamId)
+      userTeam.value = null
+      await alert({
+        title: 'Команда расформирована',
+        message: 'Команда расформирована, так как вы были последним участником',
+        type: 'info'
+      })
+    } else if (response.data.new_leader) {
+      userTeam.value = null
+      await alert({
+        title: 'Успешно',
+        message: 'Вы покинули команду. Новый лидер назначен.',
+        type: 'success'
+      })
+    }
+
+    // Sync with server
+    await fetchTeams()
   }
+  isLeavingTeam.value = false
 }
 
 const deleteTeam = async () => {
@@ -423,37 +413,32 @@ const deleteTeam = async () => {
   // Store reference before closing modal clears it
   const wasUserTeam = userTeam.value?.id === deletedTeamId
 
-  try {
-    // Close modal first, then delete
-    showTeamModal.value = false
-    selectedTeam.value = null
-    isEditingTeam.value = false
+  // Close modal first, then delete
+  showTeamModal.value = false
+  selectedTeam.value = null
+  isEditingTeam.value = false
 
-    const response = await teamApi.delete(deletedTeamId)
+  const response = await teamApi.delete(deletedTeamId)
 
-    if (!response.error) {
-      // Update local state immediately
-      if (wasUserTeam) {
-        userTeam.value = null
-      }
-
-      // Force new array reference for reactivity
-      teams.value = teams.value.filter(t => t.id !== deletedTeamId)
-
-      // Sync with server
-      await fetchTeams()
-    }
-  } catch (e: any) {
+  if (response.error) {
     await alert({
       title: 'Ошибка',
-      message: e?.error || 'Ошибка при удалении команды',
+      message: response.error,
       type: 'error'
     })
-  } finally {
-    isDeletingTeam.value = false
-    // Ensure body scroll is unlocked
-    unlockBodyScroll()
+  } else {
+    // Update local state immediately
+    if (wasUserTeam) {
+      userTeam.value = null
+    }
+
+    // Force new array reference for reactivity
+    teams.value = teams.value.filter(t => t.id !== deletedTeamId)
+
+    // Sync with server
+    await fetchTeams()
   }
+  isDeletingTeam.value = false
 }
 
 const isCurrentUserLeader = computed(() => {
@@ -493,37 +478,13 @@ const animateSections = () => {
 }
 
 // Scroll lock management
-let scrollY = 0
-const lockBodyScroll = () => {
-  scrollY = window.scrollY
-  document.body.style.position = 'fixed'
-  document.body.style.top = `-${scrollY}px`
-  document.body.style.left = '0'
-  document.body.style.right = '0'
-  document.body.style.overflow = 'hidden'
-  document.body.classList.add('modal-open')
-}
-
-const unlockBodyScroll = () => {
-  document.body.style.position = ''
-  document.body.style.top = ''
-  document.body.style.left = ''
-  document.body.style.right = ''
-  document.body.style.overflow = ''
-  document.body.classList.remove('modal-open')
-  window.scrollTo(0, scrollY)
-}
-
-// Modal animations and scroll lock
+// Modal animations
 const animateModalOpen = (modalSelector: string) => {
   const overlay = document.querySelector(modalSelector)
   if (!overlay) return
 
   const modal = overlay.querySelector('.modal')
   if (!modal) return
-
-  // Block body scroll
-  lockBodyScroll()
 
   // Animate overlay
   gsap.fromTo(overlay,
@@ -541,7 +502,6 @@ const animateModalOpen = (modalSelector: string) => {
 const animateModalClose = (modalSelector: string, callback?: () => void) => {
   const overlay = document.querySelector(modalSelector)
   if (!overlay) {
-    unlockBodyScroll()
     callback?.()
     return
   }
@@ -551,7 +511,6 @@ const animateModalClose = (modalSelector: string, callback?: () => void) => {
   // Animate out
   const tl = gsap.timeline({
     onComplete: () => {
-      unlockBodyScroll()
       callback?.()
     }
   })
@@ -634,6 +593,7 @@ onMounted(() => {
       <div v-else-if="hackathon.status === 'pending'" class="moderation-banner pending">
         <strong>Хакатон на модерации.</strong>
         <span>Эта страница видна только вам и администраторам, пока хакатон не пройдёт проверку.</span>
+        <span class="email-note">После проверки придёт письмо от <strong>didorenkoalexander@yandex.ru</strong>. Если не видите его во «Входящих» — проверьте папку «Спам».</span>
       </div>
       <div v-else-if="hackathon.status === 'rejected'" class="moderation-banner rejected">
         <strong>Хакатон отклонён модератором.</strong>
@@ -975,6 +935,7 @@ onMounted(() => {
               v-model="selectedTrackId"
               :options="[{ value: '', label: 'Без трека' }, ...hackathon.tracks.map(t => ({ value: t.id, label: t.name }))]"
               placeholder="Выберите трек"
+              :z-index="1001"
             />
           </div>
       <div v-if="isOrganizer" class="form-error">
@@ -1121,6 +1082,7 @@ onMounted(() => {
                 v-model="editTeamTrackId"
                 :options="[{ value: '', label: 'Без трека' }, ...hackathon.tracks.map(t => ({ value: t.id, label: t.name }))]"
                 placeholder="Выберите трек"
+                :z-index="1101"
               />
             </div>
           </div>
@@ -1302,6 +1264,17 @@ onMounted(() => {
 
   strong {
     color: #ffd6d6;
+  }
+}
+
+.email-note {
+  flex-basis: 100%;
+  font-size: 12px;
+  opacity: 0.85;
+  margin-top: 4px;
+
+  strong {
+    font-weight: 500;
   }
 }
 

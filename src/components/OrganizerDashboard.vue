@@ -307,16 +307,16 @@ const onDelete = async (h: OrganizerHackathonSummary) => {
     cancelText: 'Отмена',
   })
   if (!ok) return
-  try {
-    await hackathonApi.delete(h.id)
-    hackathons.value = hackathons.value.filter(x => x.id !== h.id)
-  } catch (e: any) {
+  const res = await hackathonApi.delete(h.id)
+  if (res.error) {
     await alert({
       title: 'Не удалось удалить',
-      message: e?.message || 'Не удалось удалить хакатон',
+      message: res.error,
       type: 'error',
     })
+    return
   }
+  hackathons.value = hackathons.value.filter(x => x.id !== h.id)
 }
 
 const onCancel = async (h: OrganizerHackathonSummary) => {
@@ -328,16 +328,16 @@ const onCancel = async (h: OrganizerHackathonSummary) => {
     cancelText: 'Назад',
   })
   if (!ok) return
-  try {
-    await hackathonApi.cancel(h.id)
-    h.status = 'cancelled'
-  } catch (e: any) {
+  const res = await hackathonApi.cancel(h.id)
+  if (res.error) {
     await alert({
       title: 'Не удалось отменить',
-      message: e?.message || 'Не удалось отменить хакатон',
+      message: res.error,
       type: 'error',
     })
+    return
   }
+  h.status = 'cancelled'
 }
 
 onMounted(async () => {

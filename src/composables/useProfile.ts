@@ -189,6 +189,19 @@ class ProfileManager {
     return true
   }
 
+  async deleteAccount(): Promise<boolean> {
+    this._errors.value = {}
+    const response = await userApi.deleteMe()
+
+    if (response.error) {
+      this._errors.value = { general: response.error }
+      return false
+    }
+
+    this._profile.value = null
+    return true
+  }
+
   clearErrors() {
     this._errors.value = {}
   }
@@ -220,6 +233,7 @@ export function useProfile() {
     addSkill: manager.addSkill.bind(manager),
     removeSkill: manager.removeSkill.bind(manager),
     updateSkillLevel: manager.updateSkillLevel.bind(manager),
+    deleteAccount: manager.deleteAccount.bind(manager),
     clearErrors: manager.clearErrors.bind(manager),
     clearProfile: manager.clearProfile.bind(manager),
   }

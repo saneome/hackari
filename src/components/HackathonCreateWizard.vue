@@ -813,92 +813,83 @@ const handleSubmit = async () => {
 
   isSubmitting.value = true
 
-  try {
-    // Convert numeric strings to numbers and dates to ISO format
-    const toISOString = (dateStr: string) => dateStr ? new Date(dateStr).toISOString() : ''
+  // Convert numeric strings to numbers and dates to ISO format
+  const toISOString = (dateStr: string) => dateStr ? new Date(dateStr).toISOString() : ''
 
-    // Filter out empty optional fields
-    const cleanDeadlines = form.deadlines
-      .filter(d => d.name && d.deadline_at)
-      .map(d => ({
-        name: d.name,
-        description: d.description || undefined,
-        deadline_at: toISOString(d.deadline_at),
-        is_milestone: d.is_milestone,
-      }))
+  // Filter out empty optional fields
+  const cleanDeadlines = form.deadlines
+    .filter(d => d.name && d.deadline_at)
+    .map(d => ({
+      name: d.name,
+      description: d.description || undefined,
+      deadline_at: toISOString(d.deadline_at),
+      is_milestone: d.is_milestone,
+    }))
 
-    const data: CreateHackathonRequest = {
-      ...form,
-      new_organizer_id: organizerId.value,
-      registration_start: toISOString(form.registration_start),
-      // ... rest of the fields
-      registration_end: toISOString(form.registration_end),
-      event_start: toISOString(form.event_start),
-      event_end: toISOString(form.event_end),
-      max_participants: form.max_participants ? Number(form.max_participants) : undefined,
-      team_size_min: form.team_size_min ? Number(form.team_size_min) : undefined,
-      team_size_max: form.team_size_max ? Number(form.team_size_max) : undefined,
-      tracks: form.tracks
-        .filter(t => t.name.trim())
-        .map(t => ({
-          name: t.name,
-          description: t.description || undefined,
-          prize_description: t.prize_description || undefined,
-          max_teams: t.max_teams ? Number(t.max_teams) : undefined,
-        })),
-      deadlines: cleanDeadlines,
-      social_links: socialLinks,
-      banner_url: form.banner_url || undefined,
-      city: form.location_type !== 'online' ? form.city || undefined : undefined,
-      venue: form.location_type !== 'online' ? form.venue || undefined : undefined,
-      website_url: form.website_url || undefined,
-      requirements: form.requirements || undefined,
-      age_restriction: form.age_restriction || undefined,
-      prize_pool: form.prize_pool || undefined,
-      prize_currency: form.prize_currency || undefined,
-      prize_description: form.prize_description || undefined,
+  const data: CreateHackathonRequest = {
+    ...form,
+    new_organizer_id: organizerId.value,
+    registration_start: toISOString(form.registration_start),
+    // ... rest of the fields
+    registration_end: toISOString(form.registration_end),
+    event_start: toISOString(form.event_start),
+    event_end: toISOString(form.event_end),
+    max_participants: form.max_participants ? Number(form.max_participants) : undefined,
+    team_size_min: form.team_size_min ? Number(form.team_size_min) : undefined,
+    team_size_max: form.team_size_max ? Number(form.team_size_max) : undefined,
+    tracks: form.tracks
+      .filter(t => t.name.trim())
+      .map(t => ({
+        name: t.name,
+        description: t.description || undefined,
+        prize_description: t.prize_description || undefined,
+        max_teams: t.max_teams ? Number(t.max_teams) : undefined,
+      })),
+    deadlines: cleanDeadlines,
+    social_links: socialLinks,
+    banner_url: form.banner_url || undefined,
+    city: form.location_type !== 'online' ? form.city || undefined : undefined,
+    venue: form.location_type !== 'online' ? form.venue || undefined : undefined,
+    website_url: form.website_url || undefined,
+    requirements: form.requirements || undefined,
+    age_restriction: form.age_restriction || undefined,
+    prize_pool: form.prize_pool || undefined,
+    prize_currency: form.prize_currency || undefined,
+    prize_description: form.prize_description || undefined,
+  }
+
+  if (isEditMode.value && props.editId) {
+    const { new_organizer_id: _omit, tracks: _tracksOmit, deadlines: _deadlinesOmit, ...updateData } = data as any
+    const response = await organizerApi.updateHackathon(props.editId, updateData)
+
+    if (response.error) {
+      await alert({
+        title: 'Ошибка',
+        message: response.error,
+        type: 'error',
+      })
+    } else {
+      router.push(`/hackathons/${props.editId}`)
     }
+  } else {
+    const response = await organizerApi.createHackathon(data)
 
-    if (isEditMode.value && props.editId) {
-      const { new_organizer_id: _omit, tracks: _tracksOmit, deadlines: _deadlinesOmit, ...updateData } = data as any
-      const response = await organizerApi.updateHackathon(props.editId, updateData)
-
-      if (response.error) {
-        await alert({
-          title: 'Ошибка',
-          message: response.error,
-          type: 'error',
-        })
+    if (response.data) {
+      const hackathonId = (response.data as any).id
+      if (hackathonId) {
+        router.push(`/hackathons/${hackathonId}`)
       } else {
-        router.push(`/hackathons/${props.editId}`)
+        router.push('/organizers/dashboard')
       }
     } else {
-      const response = await organizerApi.createHackathon(data)
-
-      if (response.data) {
-        const hackathonId = (response.data as any).id
-        if (hackathonId) {
-          router.push(`/hackathons/${hackathonId}`)
-        } else {
-          router.push('/organizers/dashboard')
-        }
-      } else {
-        await alert({
-          title: 'Ошибка',
-          message: response.error || 'Неизвестная ошибка',
-          type: 'error',
-        })
-      }
+      await alert({
+        title: 'Ошибка',
+        message: response.error || 'Неизвестная ошибка',
+        type: 'error',
+      })
     }
-  } catch (error: any) {
-    await alert({
-      title: 'Ошибка',
-      message: error?.message || (isEditMode.value ? 'Произошла ошибка при сохранении' : 'Произошла ошибка при создании хакатона'),
-      type: 'error',
-    })
-  } finally {
-    isSubmitting.value = false
   }
+  isSubmitting.value = false
 }
 
 // Animation for step transitions

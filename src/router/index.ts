@@ -17,6 +17,7 @@ import NotFoundView from '@/views/NotFoundView.vue'
 import AdminDashboardView from '@/views/AdminDashboardView.vue'
 import HackathonCriteriaPage from '@/components/HackathonCriteriaPage.vue'
 import HackathonRatingsPage from '@/components/HackathonRatingsPage.vue'
+import LegalView from '@/views/LegalView.vue'
 
 // Secret admin path from environment variable
 const ADMIN_SECRET = (import.meta as any).env?.VITE_ADMIN_SECRET || '9f2c7b6e5a1d4c8fbbd2a0c3e7f1a6d9'
@@ -106,6 +107,17 @@ const router = createRouter({
       path: '/hackathons/:id/ratings',
       name: 'hackathon-ratings',
       component: HackathonRatingsPage,
+      props: true,
+    },
+    {
+      path: '/legal',
+      name: 'legal',
+      component: LegalView,
+    },
+    {
+      path: '/legal/:slug',
+      name: 'legal-document',
+      component: LegalView,
       props: true,
     },
     {

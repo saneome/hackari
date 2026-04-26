@@ -9,6 +9,7 @@ import HowItWorksPage from '@/components/HowItWorksPage.vue'
 import FeaturesPage from '@/components/FeaturesPage.vue'
 import StatsPage from '@/components/StatsPage.vue'
 import FooterPage from '@/components/FooterPage.vue'
+import CookieBanner from '@/components/CookieBanner.vue'
 
 gsap.registerPlugin(ScrollTrigger)
 
@@ -55,6 +56,7 @@ onUnmounted(() => {
       <StatsPage id="stats" class="page" />
       <FooterPage class="page" />
     </main>
+    <CookieBanner />
   </div>
 </template>
 

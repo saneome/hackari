@@ -16,6 +16,8 @@ interface RegisterRequest {
   email: string
   password: string
   name: string
+  terms_accepted: boolean
+  privacy_accepted: boolean
 }
 
 interface RequestResetRequest {
@@ -121,9 +123,11 @@ async function fetchApi<T>(
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
       // Handle specific HTTP error codes with user-friendly messages
+      const backendMessage = errorData.message || errorData.error
+
       const errorMessages: Record<number, string> = {
         401: 'неверный пароль',
-        403: errorData.message || 'доступ запрещён',
+        403: backendMessage || 'доступ запрещён',
         404: 'пользователь не найден',
         409: 'пользователь уже существует',
         429: 'слишком много запросов, попробуйте позже',
@@ -131,11 +135,11 @@ async function fetchApi<T>(
       }
 
       // Special handling for email not verified
-      if (response.status === 403 && (errorData.message?.toLowerCase().includes('email не подтверждён') || errorData.message?.toLowerCase().includes('не подтверждён'))) {
-        return { error: 'EMAIL_NOT_VERIFIED', message: errorData.message }
+      if (response.status === 403 && (backendMessage?.toLowerCase().includes('email не подтверждён') || backendMessage?.toLowerCase().includes('не подтверждён'))) {
+        return { error: 'EMAIL_NOT_VERIFIED', message: backendMessage }
       }
 
-      const errorMessage = errorMessages[response.status] || errorData.message || 'произошла ошибка'
+      const errorMessage = errorMessages[response.status] || backendMessage || 'произошла ошибка'
       return { error: errorMessage, status: response.status }
     }
 
@@ -386,6 +390,11 @@ export const userApi = {
   getAvailableSkills: () =>
     fetchApi<AvailableSkill[]>('/api/users/skills', {
       method: 'GET',
+    }),
+
+  deleteMe: () =>
+    fetchApi<void>('/api/users/me', {
+      method: 'DELETE',
     }),
 }
 

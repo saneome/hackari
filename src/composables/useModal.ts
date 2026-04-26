@@ -1,5 +1,6 @@
-import { reactive, nextTick } from 'vue'
+import { reactive, nextTick, watch } from 'vue'
 import { gsap } from 'gsap'
+import { lockBodyScroll, unlockBodyScroll } from './useScrollLock'
 
 export interface ModalOptions {
   title: string
@@ -26,20 +27,36 @@ const modalState = reactive<ModalState>({
   resolve: null,
 })
 
+let activeTweenOverlay: gsap.core.Tween | null = null
+let activeTweenModal: gsap.core.Tween | null = null
+let activeCloseTimeline: gsap.core.Timeline | null = null
+
+const killAnimations = () => {
+  if (activeTweenOverlay) { activeTweenOverlay.kill(); activeTweenOverlay = null }
+  if (activeTweenModal) { activeTweenModal.kill(); activeTweenModal = null }
+  if (activeCloseTimeline) { activeCloseTimeline.kill(); activeCloseTimeline = null }
+}
+
 const animateModalOpen = () => {
+  killAnimations()
+
   nextTick(() => {
     const overlay = document.querySelector('.alert-modal-overlay') as HTMLElement
     const modal = document.querySelector('.alert-modal') as HTMLElement
     if (!overlay || !modal) return
 
+    // Reset any stale inline styles from previous close animation
+    gsap.set(overlay, { clearProps: 'all' })
+    gsap.set(modal, { clearProps: 'all' })
+
     // Animate overlay
-    gsap.fromTo(overlay,
+    activeTweenOverlay = gsap.fromTo(overlay,
       { opacity: 0 },
       { opacity: 1, duration: 0.2, ease: 'power2.out' }
     )
 
     // Animate modal with back.out easing like team modal
-    gsap.fromTo(modal,
+    activeTweenModal = gsap.fromTo(modal,
       { y: 30, opacity: 0, scale: 0.95 },
       { y: 0, opacity: 1, scale: 1, duration: 0.35, ease: 'back.out(1.2)' }
     )
@@ -47,6 +64,8 @@ const animateModalOpen = () => {
 }
 
 const animateModalClose = (callback: () => void) => {
+  killAnimations()
+
   const overlay = document.querySelector('.alert-modal-overlay') as HTMLElement
   const modal = document.querySelector('.alert-modal') as HTMLElement
 
@@ -56,12 +75,15 @@ const animateModalClose = (callback: () => void) => {
   }
 
   // Animate out with timeline
-  const tl = gsap.timeline({
-    onComplete: callback
+  activeCloseTimeline = gsap.timeline({
+    onComplete: () => {
+      activeCloseTimeline = null
+      callback()
+    }
   })
 
-  tl.to(modal, { y: 20, opacity: 0, scale: 0.98, duration: 0.2, ease: 'power2.in' })
-  tl.to(overlay, { opacity: 0, duration: 0.15, ease: 'power2.in' }, '<')
+  activeCloseTimeline.to(modal, { y: 20, opacity: 0, scale: 0.98, duration: 0.2, ease: 'power2.in' })
+  activeCloseTimeline.to(overlay, { opacity: 0, duration: 0.15, ease: 'power2.in' }, '<')
 }
 
 const closeModal = () => {
@@ -141,6 +163,15 @@ export const useModal = () => {
     confirm,
   }
 }
+
+// Auto-lock body scroll when any alert/confirm modal is open
+watch(() => modalState.isOpen, (isOpen: boolean) => {
+  if (isOpen) {
+    lockBodyScroll()
+  } else {
+    unlockBodyScroll()
+  }
+})
 
 // Export global state for use in components
 export { modalState }

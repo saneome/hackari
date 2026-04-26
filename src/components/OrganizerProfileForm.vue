@@ -213,51 +213,50 @@ const handleSubmit = async () => {
 
   isSubmitting.value = true
 
-  try {
-    const data = {
-      name: form.name,
-      type_: form.type_,
-      email: form.email,
-      description: form.description || undefined,
-      website_url: form.website_url || undefined,
-      logo_url: form.logo_url || undefined,
-      social_links: socialLinks,
-    }
+  const data = {
+    name: form.name,
+    type_: form.type_,
+    email: form.email,
+    description: form.description || undefined,
+    website_url: form.website_url || undefined,
+    logo_url: form.logo_url || undefined,
+    social_links: socialLinks,
+  }
 
-    console.log('Sending organizer data:', data)
-    let response
-    if (hasOrganizer.value) {
-      response = await organizerApi.updateOrganizer({
-        description: data.description,
-        website_url: data.website_url,
-        logo_url: data.logo_url,
-        email: data.email,
-        social_links: data.social_links,
-      })
-    } else {
-      response = await organizerApi.createOrganizer(data)
-    }
-    console.log('Response:', response)
+  console.log('Sending organizer data:', data)
+  let response
+  const wasCreating = !hasOrganizer.value
+  if (hasOrganizer.value) {
+    response = await organizerApi.updateOrganizer({
+      description: data.description,
+      website_url: data.website_url,
+      logo_url: data.logo_url,
+      email: data.email,
+      social_links: data.social_links,
+    })
+  } else {
+    response = await organizerApi.createOrganizer(data)
+  }
+  console.log('Response:', response)
 
-    if (response.data) {
-      hasOrganizer.value = true
-      router.push('/organizers/dashboard')
-    } else {
+  if (response.data) {
+    hasOrganizer.value = true
+    if (wasCreating) {
       await alert({
-        title: 'Ошибка',
-        message: response.error || 'Произошла ошибка',
-        type: 'error'
+        title: 'Профиль отправлен на верификацию',
+        message: 'Когда модераторы подтвердят профиль, вы получите письмо от didorenkoalexander@yandex.ru. Если не увидите его во «Входящих» — проверьте папку «Спам».',
+        type: 'info'
       })
     }
-  } catch (error: any) {
+    router.push('/organizers/dashboard')
+  } else {
     await alert({
       title: 'Ошибка',
-      message: error?.message || 'Произошла ошибка при сохранении',
+      message: response.error || 'Произошла ошибка',
       type: 'error'
     })
-  } finally {
-    isSubmitting.value = false
   }
+  isSubmitting.value = false
 }
 
 const goBack = () => {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useScrollLock } from '@/composables/useScrollLock'
 import { adminApi } from '@/services/api'
 import type { AdminReport, ReportDetail } from '@/services/api'
 
@@ -35,6 +36,9 @@ const filterCounts = computed(() => ({
 }))
 
 const activeReport = computed(() => selectedReportDetail.value ?? selectedReportSummary.value)
+
+const isReportModalOpen = computed(() => !!selectedReportSummary.value)
+useScrollLock(isReportModalOpen)
 
 const formatDate = (value: string) =>
   new Intl.DateTimeFormat('ru-RU', {

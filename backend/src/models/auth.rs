@@ -9,6 +9,8 @@ pub struct RegisterRequest {
     pub password: String,
     #[validate(length(min = 2, max = 100))]
     pub name: String,
+    pub terms_accepted: bool,
+    pub privacy_accepted: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Validate)]
@@ -35,6 +37,8 @@ pub struct UserResponse {
     pub github_url: Option<String>,
     pub telegram_username: Option<String>,
     pub is_verified: bool,
+    pub terms_accepted_at: Option<String>,
+    pub privacy_accepted_at: Option<String>,
     pub is_staff: bool,
     pub is_superuser: bool,
 }
@@ -90,15 +94,19 @@ pub struct PendingRegistration {
     pub email: String,
     pub password_hash: String,
     pub name: String,
+    pub terms_accepted: bool,
+    pub privacy_accepted: bool,
     pub created_at: String, // ISO 8601 timestamp
 }
 
 impl PendingRegistration {
-    pub fn new(email: String, password_hash: String, name: String) -> Self {
+    pub fn new(email: String, password_hash: String, name: String, terms_accepted: bool, privacy_accepted: bool) -> Self {
         Self {
             email,
             password_hash,
             name,
+            terms_accepted,
+            privacy_accepted,
             created_at: chrono::Utc::now().to_rfc3339(),
         }
     }

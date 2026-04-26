@@ -2,7 +2,11 @@
 import { ref, watch, nextTick } from 'vue'
 import { gsap } from 'gsap'
 import { reportApi } from '@/services/api'
+import { useModal } from '@/composables/useModal'
+import { useScrollLock } from '@/composables/useScrollLock'
 import CustomSelect from './CustomSelect.vue'
+
+const { alert } = useModal()
 
 const props = defineProps<{
   show: boolean
@@ -19,26 +23,7 @@ const emit = defineEmits<{
 
 const isVisible = ref(false)
 
-const lockBodyScroll = () => {
-  const scrollY = window.scrollY
-  document.body.dataset.modalScrollY = String(scrollY)
-  document.body.style.position = 'fixed'
-  document.body.style.top = `-${scrollY}px`
-  document.body.style.left = '0'
-  document.body.style.right = '0'
-  document.body.style.overflow = 'hidden'
-}
-
-const unlockBodyScroll = () => {
-  const scrollY = parseInt(document.body.dataset.modalScrollY || '0', 10)
-  document.body.style.position = ''
-  document.body.style.top = ''
-  document.body.style.left = ''
-  document.body.style.right = ''
-  document.body.style.overflow = ''
-  delete document.body.dataset.modalScrollY
-  window.scrollTo(0, scrollY)
-}
+useScrollLock(isVisible)
 
 const animateOpen = () => {
   nextTick(() => {
@@ -78,12 +63,10 @@ watch(() => props.show, (val) => {
     description.value = ''
     error.value = ''
     isVisible.value = true
-    lockBodyScroll()
     animateOpen()
   } else if (isVisible.value) {
     animateClose(() => {
       isVisible.value = false
-      unlockBodyScroll()
     })
   }
 })
@@ -128,6 +111,11 @@ const submitReport = async () => {
     emit('submitted')
     emit('update:show', false)
     emit('close')
+    await alert({
+      title: 'Жалоба отправлена',
+      message: 'Когда модераторы рассмотрят жалобу, вы получите письмо от didorenkoalexander@yandex.ru. Если не увидите его во «Входящих» — проверьте папку «Спам».',
+      type: 'success'
+    })
   }
 }
 

@@ -1,4 +1,5 @@
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
+import { lockBodyScroll, unlockBodyScroll } from './useScrollLock'
 
 export interface ModalDialogOptions {
   title: string
@@ -77,3 +78,11 @@ export function useModalDialog() {
     confirmAction,
   }
 }
+
+watch(() => dialogState.value.isOpen, (isOpen: boolean) => {
+  if (isOpen) {
+    lockBodyScroll()
+  } else {
+    unlockBodyScroll()
+  }
+})

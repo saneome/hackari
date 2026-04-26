@@ -300,51 +300,48 @@ async function saveRating(submissionId: string) {
     ([criteriaId, score]) => ({ criteria_id: criteriaId, score })
   )
 
-  try {
-    const existingSubmission = submissions.value.find(s => s.id === submissionId)
+  const existingSubmission = submissions.value.find(s => s.id === submissionId)
 
-    if (existingSubmission?.rating) {
-      // Update existing rating
-      const res = await ratingApi.updateRating(
-        props.hackathonId,
-        existingSubmission.rating.id,
-        {
-          scores: scoreInputs,
-          feedback: ratingForm.value.feedback || undefined,
-          is_final: ratingForm.value.is_final
-        }
-      )
-
-      if (res.error) {
-        error.value = res.error
-        return
+  if (existingSubmission?.rating) {
+    // Update existing rating
+    const res = await ratingApi.updateRating(
+      props.hackathonId,
+      existingSubmission.rating.id,
+      {
+        scores: scoreInputs,
+        feedback: ratingForm.value.feedback || undefined,
+        is_final: ratingForm.value.is_final
       }
-    } else {
-      // Create new rating
-      const res = await ratingApi.createRating(
-        props.hackathonId,
-        {
-          submission_id: submissionId,
-          scores: scoreInputs,
-          feedback: ratingForm.value.feedback || undefined,
-          is_final: ratingForm.value.is_final
-        }
-      )
+    )
 
-      if (res.error) {
-        error.value = res.error
-        return
-      }
+    if (res.error) {
+      error.value = res.error
+      saving.value = false
+      return
     }
+  } else {
+    // Create new rating
+    const res = await ratingApi.createRating(
+      props.hackathonId,
+      {
+        submission_id: submissionId,
+        scores: scoreInputs,
+        feedback: ratingForm.value.feedback || undefined,
+        is_final: ratingForm.value.is_final
+      }
+    )
 
-    editingSubmissionId.value = null
-    await loadData()
-    emit('rating-updated')
-  } catch (e: any) {
-    error.value = 'Ошибка сохранения оценки'
-  } finally {
-    saving.value = false
+    if (res.error) {
+      error.value = res.error
+      saving.value = false
+      return
+    }
   }
+
+  editingSubmissionId.value = null
+  await loadData()
+  emit('rating-updated')
+  saving.value = false
 }
 </script>
 

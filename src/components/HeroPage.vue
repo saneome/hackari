@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { useMouse3D } from '@/composables/useMouse3D'
@@ -11,6 +12,7 @@ const ctaButton = ref<HTMLButtonElement | null>(null)
 const coordinates = ref<HTMLElement | null>(null)
 
 const { rotation, mouse } = useMouse3D()
+const router = useRouter()
 
 // Kinetic typography letters
 const titleLetters = 'hackari'.split('')
@@ -132,8 +134,8 @@ onMounted(() => {
         <span class="accent">.online</span>
       </p>
 
-      <button ref="ctaButton" class="cta-button">
-        <span class="button-text">начать организацию</span>
+      <button ref="ctaButton" class="cta-button" @click="router.push('/hackathons')">
+        <span class="button-text">найти хакатон</span>
         <span class="button-icon">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M7 17L17 7M17 7H7M17 7V17" stroke-linecap="round" stroke-linejoin="round"/>

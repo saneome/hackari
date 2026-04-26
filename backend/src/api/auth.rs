@@ -52,6 +52,12 @@ async fn register(
     req.validate()
         .map_err(|e| AppError::BadRequest(e.to_string()))?;
 
+    if !req.terms_accepted || !req.privacy_accepted {
+        return Err(AppError::BadRequest(
+            "Необходимо принять условия использования и дать согласие на обработку персональных данных".to_string(),
+        ));
+    }
+
     // Check if email exists in database
     let existing_user = users::Entity::find()
         .filter(users::Column::Email.eq(&req.email))
@@ -89,6 +95,8 @@ async fn register(
         req.email.clone(),
         password_hash,
         req.name.clone(),
+        req.terms_accepted,
+        req.privacy_accepted,
     );
 
     let pending_json = serde_json::to_string(&pending_reg)
@@ -184,8 +192,10 @@ async fn login(
         github_url: user.github_url,
         telegram_username: user.telegram_username,
         is_verified: user.is_verified,
-                is_staff: user.is_staff,
-                is_superuser: user.is_superuser,
+        terms_accepted_at: user.terms_accepted_at.map(|dt| dt.to_rfc3339()),
+        privacy_accepted_at: user.privacy_accepted_at.map(|dt| dt.to_rfc3339()),
+        is_staff: user.is_staff,
+        is_superuser: user.is_superuser,
     };
 
     let response = AuthResponse {
@@ -298,8 +308,10 @@ async fn get_current_user(
             github_url: user.github_url,
             telegram_username: user.telegram_username,
             is_verified: user.is_verified,
-                is_staff: user.is_staff,
-                is_superuser: user.is_superuser,
+            terms_accepted_at: user.terms_accepted_at.map(|dt| dt.to_rfc3339()),
+            privacy_accepted_at: user.privacy_accepted_at.map(|dt| dt.to_rfc3339()),
+            is_staff: user.is_staff,
+            is_superuser: user.is_superuser,
         };
 
         return Ok(Json(user_response));
@@ -446,11 +458,14 @@ async fn verify_email(
     }
 
     // Create user in database
+    let now = chrono::Utc::now().fixed_offset();
     let user = users::ActiveModel {
         email: Set(pending_reg.email),
         password_hash: Set(pending_reg.password_hash),
         name: Set(pending_reg.name),
         is_verified: Set(true),
+        terms_accepted_at: Set(if pending_reg.terms_accepted { Some(now) } else { None }),
+        privacy_accepted_at: Set(if pending_reg.privacy_accepted { Some(now) } else { None }),
         ..Default::default()
     };
 
