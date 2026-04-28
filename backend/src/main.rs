@@ -66,6 +66,7 @@ let cors = CorsLayer::new()
         "http://localhost:5173".parse()?,
         "http://localhost:3000".parse()?,
         "http://localhost:3001".parse()?,
+        "http://111.88.149.106".parse()?,
     ])
  .allow_methods([
  axum::http::Method::GET,
