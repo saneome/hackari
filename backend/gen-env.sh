@@ -23,7 +23,7 @@ REDIS_URL=redis://127.0.0.1:6379
 SMTP_USER=didorenkoalexander
 SMTP_PASSWORD=fsvnzgnvmcfbmwsq
 FROM_EMAIL=didorenkoalexander@yandex.ru
-FRONTEND_URL=http://hackari.vercel.app
+FRONTEND_URL=http://111.88.149.106:5173
 
 RUST_LOG=debug,tower_http=debug
 EOF
