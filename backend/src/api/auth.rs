@@ -111,7 +111,7 @@ async fn register(
     let _: () = redis_conn.set_ex(&verify_token_key, &req.email, EMAIL_VERIFICATION_TTL).await?;
 
     // Send verification email
-    let frontend_url = std::env::var("FRONTEND_URL").unwrap_or_else(|_| "http://localhost:5173".to_string());
+    let frontend_url = std::env::var("FRONTEND_URL").expect("FRONTEND_URL must be set");
     let verify_url = format!("{}/auth/verify-email?token={}", frontend_url, verification_token);
     tracing::debug!("Verification URL: {}", verify_url);
 
@@ -348,7 +348,7 @@ async fn request_reset(
     let _: () = redis_conn.set_ex(&redis_key, user.id.to_string(), PASSWORD_RESET_TTL).await?;
 
     // Send email with reset link
-    let frontend_url = std::env::var("FRONTEND_URL").unwrap_or_else(|_| "http://localhost:5173".to_string());
+    let frontend_url = std::env::var("FRONTEND_URL").expect("FRONTEND_URL must be set");
     let reset_url = format!("{}/auth/reset-password?token={}", frontend_url, reset_token);
     tracing::debug!("Reset URL: {}", reset_url);
 

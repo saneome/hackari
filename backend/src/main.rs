@@ -45,7 +45,7 @@ async fn main() -> anyhow::Result<()> {
  .expect("FROM_EMAIL must be set");
 
  let frontend_url = std::env::var("FRONTEND_URL")
- .unwrap_or_else(|_| "http://localhost:5173".to_string());
+ .expect("FRONTEND_URL must be set");
 
  let db = Database::connect(&database_url).await?;
  info!("Connected to database");
@@ -61,13 +61,10 @@ async fn main() -> anyhow::Result<()> {
 
  let state = Arc::new(AppState::new(db, redis, &smtp_user, &smtp_password, &from_email, &frontend_url));
 
+let frontend_origin = frontend_url.parse()?;
+
 let cors = CorsLayer::new()
-    .allow_origin([
-        "http://localhost:5173".parse()?,
-        "http://localhost:3000".parse()?,
-        "http://localhost:3001".parse()?,
-        "http://111.88.149.106".parse()?,
-    ])
+    .allow_origin([frontend_origin])
  .allow_methods([
  axum::http::Method::GET,
  axum::http::Method::POST,
