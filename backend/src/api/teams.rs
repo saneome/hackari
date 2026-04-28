@@ -30,17 +30,21 @@ use axum::extract::Query;
 use std::collections::HashMap;
 
 pub fn routes() -> Router<SharedState> {
-  Router::new()
-    // Public routes - no auth required
+  // Public routes - no auth required
+  let public = Router::new()
     .route("/ratings/competencies", get(get_competency_ratings))
-    .route("/ratings/categories", get(get_rating_categories))
-    // Protected routes - auth required
+    .route("/ratings/categories", get(get_rating_categories));
+
+  // Protected routes - auth required
+  let protected = Router::new()
     .route("/", post(create_team))
     .route("/:id", get(get_team).put(update_team).delete(delete_team))
     .route("/:id/join", post(join_team))
     .route("/:id/leave", post(leave_team))
     .route("/:id/submission", get(get_submission).post(create_submission).put(update_submission))
-    .layer(middleware::from_fn(auth_middleware))
+    .layer(middleware::from_fn(auth_middleware));
+
+  public.merge(protected)
 }
 
 async fn create_team(
