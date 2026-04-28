@@ -98,34 +98,22 @@ async fn create_hackathon(
         .one(&state.db)
         .await?;
 
-    let organizer_id = match organizer {
-        Some(org) => org.id,
+    let organizer = match organizer {
+        Some(org) => org,
         None => {
-            // Auto-create organizer from user info
-            let user = users::Entity::find_by_id(claims.sub)
-                .one(&state.db)
-                .await?
-                .ok_or(AppError::NotFound("Пользователь не найден".to_string()))?;
-
-            let new_organizer = organizers::ActiveModel {
-                id: Set(Uuid::new_v4()),
-                user_id: Set(claims.sub),
-                name: Set(user.name.clone()),
-                type_: Set("individual".to_string()),
-                description: Set(None),
-                website_url: Set(None),
-                logo_url: Set(user.avatar_url),
-                email: Set(user.email),
-                social_links: Set(None),
-                is_verified: Set(false),
-                created_at: Set(Utc::now().into()),
-                updated_at: Set(Utc::now().into()),
-            };
-
-            let org = new_organizer.insert(&state.db).await?;
-            org.id
+            return Err(AppError::Forbidden(
+                "Ваш профиль организатора не верифицирован. Создание хакатонов доступно только после прохождения верификации.".to_string(),
+            ));
         }
     };
+
+    if !organizer.is_verified {
+        return Err(AppError::Forbidden(
+            "Ваш профиль организатора не верифицирован. Создание хакатонов доступно только после прохождения верификации.".to_string(),
+        ));
+    }
+
+    let organizer_id = organizer.id;
 
     // Create hackathon in transaction
     let tx = state.db.begin().await?;

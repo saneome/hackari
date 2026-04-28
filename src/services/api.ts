@@ -506,6 +506,7 @@ export interface Organizer {
   email: string
   social_links?: unknown
   is_verified: boolean
+  rejection_reason?: string
   created_at: string
 }
 
@@ -533,6 +534,8 @@ export interface CreateOrganizerRequest {
 }
 
 export interface UpdateOrganizerRequest {
+  name?: string
+  type_?: string
   description?: string
   website_url?: string
   logo_url?: string
@@ -829,6 +832,7 @@ export interface UnverifiedOrganizer {
   user_name: string
   email: string
   description?: string
+  rejection_reason?: string
   created_at: string
 }
 
@@ -908,6 +912,11 @@ export const adminApi = {
   verifyOrganizer: (id: string) =>
     fetchApi<null>(`/api/admin/${ADMIN_SECRET}/organizers/${id}/verify`, {
       method: 'POST',
+    }),
+  rejectOrganizer: (id: string, reason: string) =>
+    fetchApi<null>(`/api/admin/${ADMIN_SECRET}/organizers/${id}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
     }),
 
   // Reports management

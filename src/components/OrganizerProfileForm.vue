@@ -9,6 +9,21 @@
           </p>
         </div>
 
+        <!-- Rejection reason banner -->
+        <div v-if="profile?.rejection_reason" class="rejection-banner">
+          <div class="rejection-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+          </div>
+          <div class="rejection-content">
+            <div class="rejection-title">Верификация отклонена</div>
+            <div class="rejection-text">{{ profile.rejection_reason }}</div>
+          </div>
+        </div>
+
         <form @submit.prevent="handleSubmit" class="profile-form">
           <div class="form-section">
             <h3 class="section-title">Основная информация</h3>
@@ -123,10 +138,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import gsap from 'gsap'
-import { organizerApi } from '@/services/api'
+import { organizerApi, type Organizer } from '@/services/api'
 import { useAuth } from '@/composables/useAuth'
 import { useModal } from '@/composables/useModal'
 import CustomSelect from '@/components/CustomSelect.vue'
@@ -160,6 +175,18 @@ const form = reactive({
 })
 
 const errors = reactive<Record<string, string>>({})
+
+const clearValidationErrors = () => {
+  Object.keys(errors).forEach((key) => {
+    delete errors[key]
+  })
+}
+
+watch(() => form.type_, (value) => {
+  if (value) {
+    errors.type_ = ''
+  }
+})
 
 const isValid = computed(() => {
   return form.name && form.type_ && form.email && !errors.name && !errors.type_ && !errors.email
@@ -228,6 +255,8 @@ const handleSubmit = async () => {
   const wasCreating = !hasOrganizer.value
   if (hasOrganizer.value) {
     response = await organizerApi.updateOrganizer({
+      name: data.name,
+      type_: data.type_,
       description: data.description,
       website_url: data.website_url,
       logo_url: data.logo_url,
@@ -241,6 +270,7 @@ const handleSubmit = async () => {
 
   if (response.data) {
     hasOrganizer.value = true
+    clearValidationErrors()
     if (wasCreating) {
       await alert({
         title: 'Профиль отправлен на верификацию',
@@ -279,6 +309,7 @@ onMounted(async () => {
     const response = await organizerApi.getMyOrganizer()
     if (response.data) {
       hasOrganizer.value = true
+      clearValidationErrors()
       form.name = response.data.name
       form.type_ = response.data.type_
       form.email = response.data.email
@@ -467,64 +498,66 @@ onMounted(async () => {
   overflow: hidden;
   background: transparent;
 
-  &.btn-primary {
+  &.btn-outline:hover {
+    border-color: $color-text;
     color: $color-accent;
-    border-color: $color-accent;
-    min-width: 180px;
+  }
+}
+
+.btn-primary {
+  background: $color-accent;
+  color: $color-bg;
+  border-color: $color-accent;
+
+  &:hover:not(:disabled) {
+    opacity: 0.85;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.btn-submit {
+  display: flex;
+  color: $color-bg;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: $color-accent;
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform 0.3s $transition-smooth;
+    z-index: -1;
+  }
+
+  &:hover:not(:disabled) {
+    color: $color-bg;
 
     &::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: $color-accent;
-      transform: scaleX(0);
-      transform-origin: left;
-      transition: transform 0.3s $transition-smooth;
-      z-index: -1;
-    }
-
-    &:hover:not(:disabled) {
-      color: $color-bg;
-
-      &::before {
-        transform: scaleX(1);
-      }
-    }
-
-    &:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
+      transform: scaleX(1);
     }
   }
 
-  &.btn-secondary {
-    color: $color-text;
-    border-color: $color-border;
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
 
-    &::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: $color-surface;
-      transform: scaleX(0);
-      transform-origin: left;
-      transition: transform 0.3s $transition-smooth;
-      z-index: -1;
-    }
+.btn-secondary {
+  background: transparent;
+  color: $color-text;
+  border-color: $color-border;
 
-    &:hover {
-      border-color: $color-text;
-
-      &::before {
-        transform: scaleX(1);
-      }
-    }
+  &:hover:not(:disabled) {
+    border-color: $color-text;
   }
 }
 
@@ -540,6 +573,40 @@ onMounted(async () => {
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+.rejection-banner {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: 8px;
+  padding: 16px 20px;
+  margin-bottom: 24px;
+
+  .rejection-icon {
+    flex-shrink: 0;
+    color: #ef4444;
+    margin-top: 2px;
+  }
+
+  .rejection-content {
+    flex: 1;
+  }
+
+  .rejection-title {
+    font-weight: 600;
+    color: #ef4444;
+    margin-bottom: 4px;
+    font-size: 14px;
+  }
+
+  .rejection-text {
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 13px;
+    line-height: 1.5;
   }
 }
 </style>

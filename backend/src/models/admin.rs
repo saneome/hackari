@@ -30,6 +30,7 @@ pub struct UnverifiedOrganizer {
     pub user_name: String,
     pub email: String,
     pub description: Option<String>,
+    pub rejection_reason: Option<String>,
     pub created_at: String,
 }
 

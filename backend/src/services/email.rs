@@ -87,6 +87,11 @@ impl EmailService {
         handlebars.register_template_string("organizer_verified", organizer_verified_template)
             .map_err(|e| EmailError::TemplateError(format!("Failed to register organizer_verified template: {}", e)))?;
 
+        let organizer_rejected_template = fs::read_to_string(templates_dir.join("organizer_rejected.html"))
+            .map_err(|e| EmailError::TemplateError(format!("Failed to load organizer_rejected template: {}", e)))?;
+        handlebars.register_template_string("organizer_rejected", organizer_rejected_template)
+            .map_err(|e| EmailError::TemplateError(format!("Failed to register organizer_rejected template: {}", e)))?;
+
         let report_resolved_template = fs::read_to_string(templates_dir.join("report_resolved.html"))
             .map_err(|e| EmailError::TemplateError(format!("Failed to load report_resolved template: {}", e)))?;
         handlebars.register_template_string("report_resolved", report_resolved_template)
@@ -220,6 +225,30 @@ impl EmailService {
         let text = format!(
             "Поздравляем! Ваш профиль верифицирован — Hackari\n\nВаша организация «{}» прошла верификацию на платформе Hackari.\n\nТеперь вы можете создавать хакатоны и получать повышенный уровень доверия от участников.\n\nСоздать хакатон: {}\n\nСпасибо, что работаете с нами!",
             organizer_name, create_url
+        );
+
+        self.send_email(to_email, &subject, &html, &text).await
+    }
+
+    pub async fn send_organizer_rejected(&self, to_email: &str, organizer_name: &str, reason: &str) -> Result<(), EmailError> {
+        if !to_email.contains('@') {
+            return Err(EmailError::InvalidEmail);
+        }
+
+        let profile_url = format!("{}/organizers/profile", self.frontend_url);
+
+        let mut data: HashMap<&str, String> = HashMap::new();
+        data.insert("organizer_name", organizer_name.to_string());
+        data.insert("reason", reason.to_string());
+        data.insert("profile_url", profile_url.clone());
+        data.insert("frontend_url", self.frontend_url.clone());
+
+        let subject = format!("Ваша верификация отклонена — Hackari");
+        let html = self.render_email("organizer_rejected", &data)?;
+
+        let text = format!(
+            "Ваша верификация отклонена — Hackari\n\nК сожалению, профиль вашей организации «{}» не прошел верификацию.\n\nПричина: {}\n\nПерейдите в профиль организатора для редактирования данных: {}\n\nПосле внесения изменений ваша заявка будет повторно рассмотрена модераторами.",
+            organizer_name, reason, profile_url
         );
 
         self.send_email(to_email, &subject, &html, &text).await

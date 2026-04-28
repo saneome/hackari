@@ -15,14 +15,32 @@
               </svg>
               Редактировать профиль
             </router-link>
-            <router-link to="/hackathons/create" class="btn btn-primary">
+            <button type="button" class="btn btn-primary" @click="onCreateHackathon">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <line x1="12" y1="5" x2="12" y2="19"/>
                 <line x1="5" y1="12" x2="19" y2="12"/>
               </svg>
               Создать хакатон
-            </router-link>
+            </button>
           </div>
+        </div>
+      </div>
+
+      <!-- Rejection reason banner -->
+      <div v-if="organizerProfile?.rejection_reason" class="rejection-banner">
+        <div class="rejection-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="8" x2="12" y2="12"/>
+            <line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+        </div>
+        <div class="rejection-content">
+          <div class="rejection-title">Верификация отклонена</div>
+          <div class="rejection-text">{{ organizerProfile.rejection_reason }}</div>
+          <router-link to="/organizers/profile" class="rejection-link">
+            Перейти к редактированию профиля
+          </router-link>
         </div>
       </div>
 
@@ -91,9 +109,9 @@
             </div>
             <h3>У вас пока нет хакатонов</h3>
             <p>Создайте свой первый хакатон и начните принимать заявки от участников</p>
-            <router-link to="/hackathons/create" class="btn btn-primary">
+            <button type="button" class="btn btn-primary" @click="onCreateHackathon">
               Создать хакатон
-            </router-link>
+            </button>
           </div>
 
           <div v-else class="hackathons-list">
@@ -233,10 +251,12 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import gsap from 'gsap'
-import { organizerApi, hackathonApi, type OrganizerHackathonSummary } from '@/services/api'
+import { organizerApi, hackathonApi, type OrganizerHackathonSummary, type Organizer } from '@/services/api'
 import { useModal } from '@/composables/useModal'
 
+const router = useRouter()
 const { alert, confirm } = useModal()
 
 const header = ref<HTMLElement | null>(null)
@@ -244,6 +264,7 @@ const stats = ref<HTMLElement | null>(null)
 const content = ref<HTMLElement | null>(null)
 
 const hackathons = ref<OrganizerHackathonSummary[]>([])
+const organizerProfile = ref<Organizer | null>(null)
 const isLoading = ref(true)
 
 const pendingCount = computed(() => {
@@ -319,6 +340,19 @@ const onDelete = async (h: OrganizerHackathonSummary) => {
   hackathons.value = hackathons.value.filter(x => x.id !== h.id)
 }
 
+const onCreateHackathon = async () => {
+  const res = await organizerApi.getMyOrganizer()
+  if (res.data && res.data.is_verified === true) {
+    router.push('/hackathons/create')
+    return
+  }
+  await alert({
+    title: 'Профиль не верифицирован',
+    message: 'Ваш профиль организатора не верифицирован. Создание хакатонов доступно только после прохождения верификации.',
+    type: 'warning',
+  })
+}
+
 const onCancel = async (h: OrganizerHackathonSummary) => {
   const ok = await confirm({
     title: 'Отменить хакатон',
@@ -363,6 +397,22 @@ onMounted(async () => {
     if (!organizerResponse.data) {
       hackathons.value = []
       return
+    }
+    organizerProfile.value = organizerResponse.data
+
+    // Show rejection alert once per reason change
+    if (organizerResponse.data.rejection_reason) {
+      const lastKey = localStorage.getItem('last_rejection_reason')
+      if (lastKey !== organizerResponse.data.rejection_reason) {
+        await alert({
+          title: 'Верификация отклонена',
+          message: organizerResponse.data.rejection_reason + '\n\nПожалуйста, обновите профиль организатора, чтобы пройти повторную верификацию.',
+          type: 'error',
+        })
+        localStorage.setItem('last_rejection_reason', organizerResponse.data.rejection_reason)
+      }
+    } else {
+      localStorage.removeItem('last_rejection_reason')
     }
 
     const response = await organizerApi.getHackathons(organizerResponse.data.id)
@@ -802,6 +852,69 @@ onMounted(async () => {
       border-color: #d36a6a;
       color: #d36a6a;
     }
+  }
+
+}
+
+.rejection-banner {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: 8px;
+  padding: 16px 20px;
+  margin-bottom: 24px;
+  animation: rejectionSlideIn 0.4s ease;
+
+  .rejection-icon {
+    flex-shrink: 0;
+    color: #ef4444;
+    margin-top: 2px;
+  }
+
+  .rejection-content {
+    flex: 1;
+  }
+
+  .rejection-title {
+    font-weight: 600;
+    color: #ef4444;
+    margin-bottom: 4px;
+    font-size: 14px;
+  }
+
+  .rejection-text {
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 13px;
+    line-height: 1.5;
+    margin-bottom: 8px;
+  }
+
+  .rejection-link {
+    color: #ef4444;
+    font-size: 13px;
+    text-decoration: none;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+
+    &:hover {
+      color: #f87171;
+      text-decoration: underline;
+    }
+  }
+}
+
+@keyframes rejectionSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 </style>

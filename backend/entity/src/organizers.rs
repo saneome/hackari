@@ -16,6 +16,7 @@ pub struct Model {
     pub email: String,
     pub social_links: Option<Json>,
     pub is_verified: bool,
+    pub rejection_reason: Option<String>,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
 }

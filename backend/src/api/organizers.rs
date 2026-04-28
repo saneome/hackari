@@ -66,6 +66,7 @@ async fn create_organizer(
         email: Set(req.email),
         social_links: Set(req.social_links),
         is_verified: Set(false),
+        rejection_reason: Set(None),
         created_at: Set(chrono::Utc::now().into()),
         updated_at: Set(chrono::Utc::now().into()),
     };
@@ -83,6 +84,7 @@ async fn create_organizer(
         email: organizer.email,
         social_links: organizer.social_links,
         is_verified: organizer.is_verified,
+        rejection_reason: organizer.rejection_reason,
         created_at: organizer.created_at.to_rfc3339(),
     };
 
@@ -110,6 +112,7 @@ async fn get_my_organizer(
         email: organizer.email,
         social_links: organizer.social_links,
         is_verified: organizer.is_verified,
+        rejection_reason: organizer.rejection_reason,
         created_at: organizer.created_at.to_rfc3339(),
     };
 
@@ -134,6 +137,9 @@ async fn update_organizer(
     if let Some(name) = req.name {
         organizer_active.name = Set(name);
     }
+    if let Some(type_) = req.type_ {
+        organizer_active.type_ = Set(type_);
+    }
     if let Some(description) = req.description {
         organizer_active.description = Set(Some(description));
     }
@@ -150,6 +156,9 @@ async fn update_organizer(
         organizer_active.social_links = Set(Some(social_links));
     }
 
+    // Reset rejection reason so organizer can be re-verified after editing
+    organizer_active.rejection_reason = Set(None);
+
     organizer_active.updated_at = Set(chrono::Utc::now().into());
 
     let organizer = organizer_active.update(&state.db).await?;
@@ -165,6 +174,7 @@ async fn update_organizer(
         email: organizer.email,
         social_links: organizer.social_links,
         is_verified: organizer.is_verified,
+        rejection_reason: organizer.rejection_reason,
         created_at: organizer.created_at.to_rfc3339(),
     };
 

@@ -16,6 +16,7 @@ use uuid::Uuid;
 use crate::{
     middleware::auth::require_staff_middleware,
     models::admin::*,
+    models::organizer::RejectOrganizerRequest,
     services::{auth::Claims, email::EmailService, state::SharedState},
     utils::error::AppError,
 };
@@ -32,6 +33,7 @@ pub fn routes() -> Router<SharedState> {
         // Organizer verification
         .route("/organizers/unverified", get(list_unverified_organizers))
         .route("/organizers/:id/verify", post(verify_organizer))
+        .route("/organizers/:id/reject", post(reject_organizer))
         // Reports
         .route("/reports", get(list_reports))
         .route("/reports/:id", get(get_report_detail))
@@ -215,6 +217,7 @@ async fn list_unverified_organizers(
                 user_name: u.name,
                 email: u.email,
                 description: organizer.description,
+                rejection_reason: organizer.rejection_reason,
                 created_at: organizer.created_at.to_rfc3339(),
             });
         }
@@ -253,6 +256,40 @@ async fn verify_organizer(
         let _ = state
             .email_service
             .send_organizer_verified(&u.email, &organizer.name)
+            .await;
+    }
+
+    Ok(StatusCode::OK)
+}
+
+// Reject organizer verification
+async fn reject_organizer(
+    State(state): State<SharedState>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<RejectOrganizerRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let organizer = organizers::Entity::find_by_id(id)
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Organizer not found".to_string()))?;
+
+    if organizer.is_verified {
+        return Err(AppError::BadRequest("Organizer is already verified".to_string()));
+    }
+
+    let mut organizer_active: organizers::ActiveModel = organizer.clone().into();
+    organizer_active.rejection_reason = Set(Some(req.reason.clone()));
+    organizer_active.update(&state.db).await?;
+
+    // Send email to organizer
+    let user = users::Entity::find_by_id(organizer.user_id)
+        .one(&state.db)
+        .await?;
+
+    if let Some(u) = user {
+        let _ = state
+            .email_service
+            .send_organizer_rejected(&u.email, &organizer.name, &req.reason)
             .await;
     }
 

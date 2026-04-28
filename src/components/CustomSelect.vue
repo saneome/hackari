@@ -84,12 +84,16 @@ const selectOption = (option: Option) => {
   if (option.disabled) return
   emit('update:modelValue', option.value)
   isOpen.value = false
-  emit('blur')
+  nextTick(() => {
+    emit('blur')
+  })
 }
 
 const close = () => {
   isOpen.value = false
-  emit('blur')
+  nextTick(() => {
+    emit('blur')
+  })
 }
 
 const scrollToFocused = () => {

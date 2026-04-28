@@ -21,6 +21,8 @@ pub struct CreateOrganizerRequest {
 pub struct UpdateOrganizerRequest {
     #[validate(length(min = 1, max = 255))]
     pub name: Option<String>,
+    #[validate(length(min = 1, max = 20))]
+    pub type_: Option<String>,
     pub description: Option<String>,
     #[validate(url(message = "Некорректный URL"))]
     pub website_url: Option<String>,
@@ -35,7 +37,6 @@ pub struct OrganizerResponse {
     pub id: String,
     pub user_id: String,
     pub name: String,
-    #[serde(rename = "type")]
     pub type_: String,
     pub description: Option<String>,
     pub website_url: Option<String>,
@@ -43,6 +44,7 @@ pub struct OrganizerResponse {
     pub email: String,
     pub social_links: Option<serde_json::Value>,
     pub is_verified: bool,
+    pub rejection_reason: Option<String>,
     pub created_at: String,
 }
 
@@ -68,7 +70,13 @@ pub struct OrganizerWithHackathonsResponse {
     pub logo_url: Option<String>,
     pub social_links: Option<serde_json::Value>,
     pub is_verified: bool,
+    pub rejection_reason: Option<String>,
     pub hackathons: Vec<HackathonSummary>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RejectOrganizerRequest {
+    pub reason: String,
 }
 
 #[derive(Debug, Serialize)]

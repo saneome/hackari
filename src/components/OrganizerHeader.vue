@@ -5,8 +5,12 @@ import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { Menu, X, LogOut, User as UserIcon, LayoutDashboard, PlusCircle, Settings, ChevronLeft } from 'lucide-vue-next'
 import { useAuth } from '@/composables/useAuth'
+import { useModal } from '@/composables/useModal'
+import { organizerApi } from '@/services/api'
 
 gsap.registerPlugin(ScrollTrigger)
+
+const { alert } = useModal()
 
 const router = useRouter()
 const route = useRoute()
@@ -54,6 +58,19 @@ const goBack = () => {
 const isActiveRoute = (href: string) => {
   return route.path === href
 }
+
+const handleCreateHackathon = async () => {
+  const res = await organizerApi.getMyOrganizer()
+  if (res.data && res.data.is_verified === true) {
+    router.push('/hackathons/create')
+    return
+  }
+  await alert({
+    title: 'Профиль не верифицирован',
+    message: 'Ваш профиль организатора не верифицирован. Создание хакатонов доступно только после прохождения верификации.',
+    type: 'warning',
+  })
+}
 </script>
 
 <template>
@@ -75,16 +92,27 @@ const isActiveRoute = (href: string) => {
 
       <!-- Desktop Navigation -->
       <nav class="desktop-nav">
-        <router-link
-          v-for="item in navItems"
-          :key="item.href"
-          :to="item.href"
-          class="nav-link"
-          :class="{ 'nav-link--active': isActiveRoute(item.href) }"
-        >
-          <component :is="item.icon" :size="16" class="nav-icon" />
-          <span>{{ item.label }}</span>
-        </router-link>
+        <template v-for="item in navItems" :key="item.href">
+          <button
+            v-if="item.href === '/hackathons/create'"
+            type="button"
+            class="nav-link"
+            :class="{ 'nav-link--active': isActiveRoute(item.href) }"
+            @click="handleCreateHackathon"
+          >
+            <component :is="item.icon" :size="16" class="nav-icon" />
+            <span>{{ item.label }}</span>
+          </button>
+          <router-link
+            v-else
+            :to="item.href"
+            class="nav-link"
+            :class="{ 'nav-link--active': isActiveRoute(item.href) }"
+          >
+            <component :is="item.icon" :size="16" class="nav-icon" />
+            <span>{{ item.label }}</span>
+          </router-link>
+        </template>
       </nav>
 
       <!-- Auth Section -->
@@ -112,17 +140,28 @@ const isActiveRoute = (href: string) => {
     <!-- Mobile Menu -->
     <transition name="slide">
       <div v-if="isMobileMenuOpen" class="mobile-menu">
-        <router-link
-          v-for="item in navItems"
-          :key="item.href"
-          :to="item.href"
-          class="mobile-nav-link"
-          :class="{ 'mobile-nav-link--active': isActiveRoute(item.href) }"
-          @click="isMobileMenuOpen = false"
-        >
-          <component :is="item.icon" :size="18" />
-          <span>{{ item.label }}</span>
-        </router-link>
+        <template v-for="item in navItems" :key="item.href">
+          <button
+            v-if="item.href === '/hackathons/create'"
+            type="button"
+            class="mobile-nav-link"
+            :class="{ 'mobile-nav-link--active': isActiveRoute(item.href) }"
+            @click="handleCreateHackathon(); isMobileMenuOpen = false"
+          >
+            <component :is="item.icon" :size="18" />
+            <span>{{ item.label }}</span>
+          </button>
+          <router-link
+            v-else
+            :to="item.href"
+            class="mobile-nav-link"
+            :class="{ 'mobile-nav-link--active': isActiveRoute(item.href) }"
+            @click="isMobileMenuOpen = false"
+          >
+            <component :is="item.icon" :size="18" />
+            <span>{{ item.label }}</span>
+          </router-link>
+        </template>
 
         <div class="mobile-divider" />
 

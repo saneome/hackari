@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useAdminModal } from '@/composables/useAdminModal'
+import BaseTextarea from '@/components/ui/BaseTextarea.vue'
 import { useScrollLock } from '@/composables/useScrollLock'
 import { adminApi } from '@/services/api'
 import type { UnverifiedOrganizer } from '@/services/api'
@@ -11,9 +12,13 @@ const organizers = ref<UnverifiedOrganizer[]>([])
 const total = ref(0)
 const isLoading = ref(true)
 const isVerifyingId = ref('')
+const isRejectingId = ref('')
 const errorMessage = ref('')
 const successMessage = ref('')
 const selectedOrganizer = ref<UnverifiedOrganizer | null>(null)
+const rejectModalOpen = ref(false)
+const rejectReason = ref('')
+const rejectTarget = ref<UnverifiedOrganizer | null>(null)
 
 const displayedOrganizers = computed(() =>
   [...organizers.value].sort(
@@ -26,6 +31,7 @@ const pendingCount = computed(() => total.value || displayedOrganizers.value.len
 
 const isOrganizerModalOpen = computed(() => !!selectedOrganizer.value)
 useScrollLock(isOrganizerModalOpen)
+useScrollLock(rejectModalOpen)
 
 const formatDate = (value: string) =>
   new Intl.DateTimeFormat('ru-RU', {
@@ -75,8 +81,20 @@ const removeOrganizer = (id: string) => {
   total.value = Math.max(0, total.value - 1)
 }
 
+const openRejectModal = (organizer: UnverifiedOrganizer) => {
+  rejectTarget.value = organizer
+  rejectReason.value = ''
+  rejectModalOpen.value = true
+}
+
+const closeRejectModal = () => {
+  rejectModalOpen.value = false
+  rejectTarget.value = null
+  rejectReason.value = ''
+}
+
 const verifyOrganizer = async (organizer: UnverifiedOrganizer, needsConfirm = true) => {
-  if (isVerifyingId.value) {
+  if (isVerifyingId.value || isRejectingId.value) {
     return
   }
 
@@ -115,6 +133,37 @@ const verifyOrganizer = async (organizer: UnverifiedOrganizer, needsConfirm = tr
     errorMessage.value = 'Не удалось подтвердить организатора'
   } finally {
     isVerifyingId.value = ''
+  }
+}
+
+const rejectOrganizer = async () => {
+  if (!rejectTarget.value || !rejectReason.value.trim() || isRejectingId.value) {
+    return
+  }
+
+  isRejectingId.value = rejectTarget.value.id
+  errorMessage.value = ''
+  successMessage.value = ''
+
+  try {
+    const response = await adminApi.rejectOrganizer(rejectTarget.value.id, rejectReason.value.trim())
+
+    if (response.error) {
+      errorMessage.value = response.error
+      return
+    }
+
+    removeOrganizer(rejectTarget.value.id)
+    successMessage.value = `Организатор "${rejectTarget.value.name}" отклонён`
+
+    if (selectedOrganizer.value?.id === rejectTarget.value.id) {
+      closeModal()
+    }
+    closeRejectModal()
+  } catch {
+    errorMessage.value = 'Не удалось отклонить организатора'
+  } finally {
+    isRejectingId.value = ''
   }
 }
 
@@ -201,15 +250,27 @@ onMounted(() => {
             Подробнее
           </button>
 
-          <button
-            type="button"
-            class="btn btn-success"
-            :disabled="isVerifyingId === organizer.id"
-            @click="verifyOrganizer(organizer)"
-          >
-            <span v-if="isVerifyingId === organizer.id" class="btn-spinner"></span>
-            <span v-else>Подтвердить</span>
-          </button>
+          <div class="action-buttons">
+            <button
+              type="button"
+              class="btn btn-danger"
+              :disabled="isRejectingId === organizer.id || isVerifyingId === organizer.id"
+              @click="openRejectModal(organizer)"
+            >
+              <span v-if="isRejectingId === organizer.id" class="btn-spinner"></span>
+              <span v-else>Отклонить</span>
+            </button>
+
+            <button
+              type="button"
+              class="btn btn-success"
+              :disabled="isVerifyingId === organizer.id || isRejectingId === organizer.id"
+              @click="verifyOrganizer(organizer)"
+            >
+              <span v-if="isVerifyingId === organizer.id" class="btn-spinner"></span>
+              <span v-else>Подтвердить</span>
+            </button>
+          </div>
         </div>
       </article>
     </div>
@@ -256,12 +317,58 @@ onMounted(() => {
           </button>
           <button
             type="button"
+            class="btn btn-danger"
+            :disabled="isRejectingId === selectedOrganizer.id || isVerifyingId === selectedOrganizer.id"
+            @click="openRejectModal(selectedOrganizer)"
+          >
+            <span v-if="isRejectingId === selectedOrganizer.id" class="btn-spinner"></span>
+            <span v-else>Отклонить</span>
+          </button>
+          <button
+            type="button"
             class="btn btn-success"
-            :disabled="isVerifyingId === selectedOrganizer.id"
+            :disabled="isVerifyingId === selectedOrganizer.id || isRejectingId === selectedOrganizer.id"
             @click="verifyOrganizer(selectedOrganizer, false)"
           >
             <span v-if="isVerifyingId === selectedOrganizer.id" class="btn-spinner"></span>
             <span v-else>Подтвердить</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Reject Modal -->
+    <div v-if="rejectModalOpen" class="modal-overlay" @click.self="closeRejectModal">
+      <div class="modal">
+        <div class="modal-header">
+          <h2 class="modal-title">Отклонить верификацию</h2>
+          <button type="button" class="modal-close" @click="closeRejectModal">&times;</button>
+        </div>
+
+        <div class="modal-content">
+          <p style="color: rgba(255,255,255,0.7); margin-bottom: 12px; font-size: 14px;">
+            Укажите причину отклонения для <strong style="color: #fff;">{{ rejectTarget?.name }}</strong>.<br>
+            Эта информация будет отправлена организатору на почту и отображена в его панели.
+          </p>
+          <BaseTextarea
+            v-model="rejectReason"
+            :rows="4"
+            placeholder="Например: недостаточно информации о компании, некорректные контактные данные..."
+          />
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" @click="closeRejectModal">
+            Отмена
+          </button>
+          <button
+            type="button"
+            class="btn btn-danger"
+            :disabled="!rejectReason.trim() || isRejectingId === rejectTarget?.id"
+            @click="rejectOrganizer()"
+          >
+            <span v-if="isRejectingId === rejectTarget?.id" class="btn-spinner"></span>
+            <span v-else>Отклонить</span>
           </button>
         </div>
       </div>
@@ -485,6 +592,12 @@ onMounted(() => {
   gap: 12px;
 }
 
+.action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .btn {
   display: inline-flex;
   align-items: center;
@@ -526,6 +639,16 @@ onMounted(() => {
 
   &:hover:not(:disabled) {
     background: rgba(34, 197, 94, 0.15);
+  }
+}
+
+.btn-danger {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+
+  &:hover:not(:disabled) {
+    background: rgba(239, 68, 68, 0.15);
   }
 }
 
