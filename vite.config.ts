@@ -2,6 +2,11 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
 
+const allowedHosts = (process.env.VITE_ALLOWED_HOSTS || 'localhost,127.0.0.1')
+  .split(',')
+  .map((host) => host.trim())
+  .filter(Boolean)
+
 export default defineConfig({
   plugins: [vue()],
   resolve: {
@@ -20,5 +25,8 @@ export default defineConfig({
     sourcemap: false,
     minify: 'esbuild',
     cssMinify: true,
+  },
+  preview: {
+    allowedHosts,
   },
 })
