@@ -1,4 +1,30 @@
 services:
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: hackari_nginx
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/templates:/etc/nginx/templates:ro
+      - ./nginx/ssl.conf.template:/etc/nginx/ssl.conf.template:ro
+      - certbot_www:/var/www/certbot
+      - letsencrypt:/etc/letsencrypt
+    depends_on:
+      - frontend
+      - backend
+
+  certbot:
+    image: certbot/certbot:latest
+    container_name: hackari_certbot
+    volumes:
+      - certbot_www:/var/www/certbot
+      - letsencrypt:/etc/letsencrypt
+    entrypoint: sh -c
+    command: "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot; sleep 12h & wait $${!}; done"
+
   postgres:
     image: postgres:16-alpine
     container_name: hackari_postgres
@@ -73,9 +99,9 @@ services:
       AWS_ENDPOINT: http://minio:9000
       AWS_BUCKET_NAME: hackari
       RUST_LOG: debug
-      FRONTEND_URL: http://localhost:5173
-    ports:
-      - "3001:3000"
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
+    expose:
+      - "3000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -91,9 +117,9 @@ services:
     working_dir: /app
     command: sh -c "npm install && npm run build && npx vite preview --host --port 5173"
     environment:
-      VITE_API_URL: ${VITE_API_URL:-http://111.88.149.106:3001}
-    ports:
-      - "5173:5173"
+      VITE_API_URL: ${VITE_API_URL:-}
+    expose:
+      - "5173"
     volumes:
       - ./:/app
       - node_modules:/app/node_modules
@@ -101,6 +127,8 @@ services:
       - backend
 
 volumes:
+  certbot_www:
+  letsencrypt:
   node_modules:
   postgres_data:
   pgadmin_data:
