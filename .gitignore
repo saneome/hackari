@@ -6,6 +6,7 @@ tools
 
 # Build
 dist
+dist-pages
 dist-ssr
 *.local
 

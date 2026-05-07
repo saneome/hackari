@@ -24,12 +24,25 @@ use crate::{
     },
     utils::error::AppError,
 };
-use serde_json;
 use entity::{sessions, users};
 
 // Redis token expiration in seconds
 const PASSWORD_RESET_TTL: u64 = 900; // 15 minutes
 const EMAIL_VERIFICATION_TTL: u64 = 86400; // 24 hours
+
+fn cookie_secure() -> bool {
+    std::env::var("COOKIE_SECURE")
+        .map(|value| value == "true" || value == "1")
+        .unwrap_or(false)
+}
+
+fn cookie_same_site() -> SameSite {
+    match std::env::var("COOKIE_SAME_SITE").as_deref() {
+        Ok("None") | Ok("none") => SameSite::None,
+        Ok("Strict") | Ok("strict") => SameSite::Strict,
+        _ => SameSite::Lax,
+    }
+}
 
 pub fn routes() -> Router<SharedState> {
     Router::new()
@@ -167,16 +180,16 @@ async fn login(
 
     let access_cookie = Cookie::build(("access_token", access_token.clone()))
         .http_only(true)
-        .secure(false)
-        .same_site(SameSite::Lax)
+        .secure(cookie_secure())
+        .same_site(cookie_same_site())
         .path("/")
         .max_age(time::Duration::minutes(15))
         .build();
 
     let refresh_cookie = Cookie::build(("refresh_token", refresh_token.clone()))
         .http_only(true)
-        .secure(false)
-        .same_site(SameSite::Lax)
+        .secure(cookie_secure())
+        .same_site(cookie_same_site())
         .path("/")
         .max_age(time::Duration::days(7))
         .build();
@@ -215,16 +228,16 @@ async fn logout(
 
     let access_cookie = Cookie::build(("access_token", ""))
         .http_only(true)
-        .secure(false)
-        .same_site(SameSite::Lax)
+        .secure(cookie_secure())
+        .same_site(cookie_same_site())
         .path("/")
         .max_age(time::Duration::ZERO)
         .build();
 
     let refresh_cookie = Cookie::build(("refresh_token", ""))
         .http_only(true)
-        .secure(false)
-        .same_site(SameSite::Lax)
+        .secure(cookie_secure())
+        .same_site(cookie_same_site())
         .path("/")
         .max_age(time::Duration::ZERO)
         .build();
@@ -265,16 +278,16 @@ async fn refresh_token(
 
     let access_cookie = Cookie::build(("access_token", access_token.clone()))
         .http_only(true)
-        .secure(false)
-        .same_site(SameSite::Lax)
+        .secure(cookie_secure())
+        .same_site(cookie_same_site())
         .path("/")
         .max_age(time::Duration::minutes(15))
         .build();
 
     let refresh_cookie = Cookie::build(("refresh_token", refresh_token.clone()))
         .http_only(true)
-        .secure(false)
-        .same_site(SameSite::Lax)
+        .secure(cookie_secure())
+        .same_site(cookie_same_site())
         .path("/")
         .max_age(time::Duration::days(7))
         .build();

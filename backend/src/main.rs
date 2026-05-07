@@ -1,4 +1,5 @@
 use axum::{
+ http::HeaderValue,
  Router,
  routing::get,
 };
@@ -61,10 +62,14 @@ async fn main() -> anyhow::Result<()> {
 
  let state = Arc::new(AppState::new(db, redis, &smtp_user, &smtp_password, &from_email, &frontend_url));
 
-let frontend_origin = frontend_url.parse()?;
+let allowed_origins = std::env::var("CORS_ALLOWED_ORIGINS")
+    .unwrap_or_else(|_| frontend_url.clone())
+    .split(',')
+    .map(|origin| origin.trim().parse::<HeaderValue>())
+    .collect::<Result<Vec<_>, _>>()?;
 
 let cors = CorsLayer::new()
-    .allow_origin([frontend_origin])
+    .allow_origin(allowed_origins)
  .allow_methods([
  axum::http::Method::GET,
  axum::http::Method::POST,
